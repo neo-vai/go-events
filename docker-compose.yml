@@ -1,0 +1,23 @@
+services:
+  go-events:
+    build: .
+    ports:
+      - "${EVENTS_PORT}:${EVENTS_PORT}"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  db:
+    image: postgres:18.3-alpine3.23
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+volumes:
+  db_data:
