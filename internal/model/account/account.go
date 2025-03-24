@@ -1,6 +1,10 @@
-package model
+package account
 
-import "time"
+import (
+	"time"
+
+	"github.com/neo-vai/go-events/internal/model/api_key"
+)
 
 type Account struct {
 	ID           string
@@ -9,5 +13,5 @@ type Account struct {
 	Login        string
 	PasswordHash string
 	CreatedAt    time.Time
-	APIKeys      []APIKey
+	APIKeys      []api_key.APIKey
 }
