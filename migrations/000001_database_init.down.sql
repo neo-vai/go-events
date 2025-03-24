@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS api_keys;
+DROP TABLE IF EXISTS accounts;
