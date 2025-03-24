@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/neo-vai/go-events/internal/model/api_key"
+	"github.com/neo-vai/go-events/internal/model/apikey"
 )
 
 type APIKeyRepositoryPG struct {
@@ -16,7 +16,7 @@ func NewAPIKeyRepositoryPG(db *pgxpool.Pool) *APIKeyRepositoryPG {
 	return &APIKeyRepositoryPG{db: db}
 }
 
-func (r *APIKeyRepositoryPG) Create(ctx context.Context, apiKey *api_key.APIKey) error {
+func (r *APIKeyRepositoryPG) Create(ctx context.Context, apiKey *apikey.APIKey) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO api_keys (id, account_id, key, active, created_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -24,20 +24,20 @@ func (r *APIKeyRepositoryPG) Create(ctx context.Context, apiKey *api_key.APIKey)
 	return err
 }
 
-func (r *APIKeyRepositoryPG) GetByID(ctx context.Context, id string) (*api_key.APIKey, error) {
+func (r *APIKeyRepositoryPG) GetByID(ctx context.Context, id string) (*apikey.APIKey, error) {
 	row := r.db.QueryRow(ctx, `
 		SELECT id, account_id, key, active, created_at
 		FROM api_keys WHERE id=$1
 	`, id)
 
-	key := &api_key.APIKey{}
+	key := &apikey.APIKey{}
 	if err := row.Scan(&key.ID, &key.ID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
 		return nil, err
 	}
 	return key, nil
 }
 
-func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID string) ([]*api_key.APIKey, error) {
+func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID string) ([]*apikey.APIKey, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, account_id, key, active, created_at
 		FROM api_keys WHERE account_id=$1
@@ -47,9 +47,9 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID strin
 	}
 	defer rows.Close()
 
-	var keys []*api_key.APIKey
+	var keys []*apikey.APIKey
 	for rows.Next() {
-		key := &api_key.APIKey{}
+		key := &apikey.APIKey{}
 		if err := rows.Scan(&key.ID, &key.ID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -58,7 +58,7 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID strin
 	return keys, nil
 }
 
-func (r *APIKeyRepositoryPG) Update(ctx context.Context, apiKey *api_key.APIKey) error {
+func (r *APIKeyRepositoryPG) Update(ctx context.Context, apiKey *apikey.APIKey) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE api_keys SET key=$1, active=$2 WHERE id=$3
 	`, apiKey.Key, apiKey.Active, apiKey.ID)

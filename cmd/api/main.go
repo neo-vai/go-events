@@ -28,8 +28,13 @@ func main() {
 
 	fmt.Println("Connected to Postgres")
 
-	// Initialize repositories
+	//// Initialize repositories
 	//accountRepo := account_repository_pg.NewAccountRepositoryPG(pool)
 	//apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	//eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
+	//
+	//accountSerice = accout_service.NewAccountService(accountRepo)
+	//apiKeyService = apikey_service.NewAPIKeyService(apiKeyRepo)
+	//eventService = event_service.NewEventService(eventRepo)
+
 }

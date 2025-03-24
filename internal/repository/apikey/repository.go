@@ -1,13 +1,15 @@
 package apikey
 
 import (
-	"github.com/neo-vai/go-events/internal/model/api_key"
+	"context"
+
+	"github.com/neo-vai/go-events/internal/model/apikey"
 )
 
 type APIKeyRepository interface {
-	Create(apiKey *api_key.APIKey) error
-	GetByID(id string) (*api_key.APIKey, error)
-	GetByAccountID(accountID string) ([]*api_key.APIKey, error)
-	Update(apiKey *api_key.APIKey) error
-	Delete(id string) error
+	Create(ctx context.Context, apiKey *apikey.APIKey) error
+	GetByID(ctx context.Context, id string) (*apikey.APIKey, error)
+	GetByAccountID(ctx context.Context, accountID string) ([]*apikey.APIKey, error)
+	Update(ctx context.Context, apiKey *apikey.APIKey) error
+	Delete(ctx context.Context, id string) error
 }

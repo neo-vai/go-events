@@ -3,7 +3,7 @@ package account
 import (
 	"time"
 
-	"github.com/neo-vai/go-events/internal/model/api_key"
+	"github.com/neo-vai/go-events/internal/model/apikey"
 )
 
 type Account struct {
@@ -13,5 +13,5 @@ type Account struct {
 	Login        string
 	PasswordHash string
 	CreatedAt    time.Time
-	APIKeys      []api_key.APIKey
+	APIKeys      []apikey.APIKey
 }

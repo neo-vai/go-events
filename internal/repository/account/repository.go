@@ -1,13 +1,15 @@
 package account
 
 import (
+	"context"
+
 	"github.com/neo-vai/go-events/internal/model/account"
 )
 
 type AccountRepository interface {
-	Create(account *account.Account) error
-	GetByID(id string) (*account.Account, error)
-	GetByLogin(login string) (*account.Account, error)
-	Update(account *account.Account) error
-	Delete(id string) error
+	Create(ctx context.Context, account *account.Account) error
+	GetByID(ctx context.Context, id string) (*account.Account, error)
+	GetByLogin(ctx context.Context, login string) (*account.Account, error)
+	Update(ctx context.Context, account *account.Account) error
+	Delete(ctx context.Context, id string) error
 }
