@@ -25,7 +25,6 @@ func NewAccountService(repo AccountRepository) *AccountService {
 	return &AccountService{repo: repo}
 }
 
-// Create new account with hashed password
 func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -36,7 +35,6 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 	return s.repo.Create(ctx, acc)
 }
 
-// Verify login password
 func (s *AccountService) VerifyPassword(ctx context.Context, login, password string) (bool, error) {
 	acc, err := s.repo.GetByLogin(ctx, login)
 	if err != nil {
@@ -49,22 +47,18 @@ func (s *AccountService) VerifyPassword(ctx context.Context, login, password str
 	return true, nil
 }
 
-// Update account fields
 func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account) error {
 	return s.repo.Update(ctx, acc)
 }
 
-// Delete account
 func (s *AccountService) DeleteAccount(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// Get account by ID
 func (s *AccountService) GetByID(ctx context.Context, id string) (*account.Account, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-// Get account by login
 func (s *AccountService) GetByLogin(ctx context.Context, login string) (*account.Account, error) {
 	return s.repo.GetByLogin(ctx, login)
 }

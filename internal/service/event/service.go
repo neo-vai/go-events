@@ -24,24 +24,75 @@ func NewEventService(repo EventRepository) *EventService {
 	return &EventService{repo: repo}
 }
 
-// Create new event
+// CreateEvent creates new event
 func (s *EventService) CreateEvent(ctx context.Context, ev *event.Event) error {
 	ev.ID = uuid.New().String()
 	ev.CreatedAt = time.Now()
 	return s.repo.Create(ctx, ev)
 }
 
-// Fetch events by account
-func (s *EventService) GetByAccount(ctx context.Context, accountID string) ([]*event.Event, error) {
-	return s.repo.GetByAccountID(ctx, accountID)
+// GetByID returns event by ID
+func (s *EventService) GetByID(ctx context.Context, id string) (*event.Event, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
-// Fetch events by account and user
-func (s *EventService) GetByAccountAndUser(ctx context.Context, accountID, user string) ([]*event.Event, error) {
-	return s.repo.GetByAccountAndUser(ctx, accountID, user)
-}
+// ListEvents returns events with optional filters
+func (s *EventService) ListEvents(ctx context.Context, accountID, user, apiKeyID string) ([]*event.Event, error) {
+	switch {
+	case accountID != "" && user != "" && apiKeyID != "":
+		byUser, err := s.repo.GetByAccountAndUser(ctx, accountID, user)
+		if err != nil {
+			return nil, err
+		}
+		var result []*event.Event
+		for _, e := range byUser {
+			if e.APIKeyID == apiKeyID {
+				result = append(result, e)
+			}
+		}
+		return result, nil
 
-// Fetch events by API Key
-func (s *EventService) GetByAPIKey(ctx context.Context, apiKeyID string) ([]*event.Event, error) {
-	return s.repo.GetByAPIKeyID(ctx, apiKeyID)
+	case accountID != "" && user != "":
+		return s.repo.GetByAccountAndUser(ctx, accountID, user)
+
+	case accountID != "" && apiKeyID != "":
+		byAccount, err := s.repo.GetByAccountID(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		var result []*event.Event
+		for _, e := range byAccount {
+			if e.APIKeyID == apiKeyID {
+				result = append(result, e)
+			}
+		}
+		return result, nil
+
+	case user != "" && apiKeyID != "":
+		byKey, err := s.repo.GetByAPIKeyID(ctx, apiKeyID)
+		if err != nil {
+			return nil, err
+		}
+		var result []*event.Event
+		for _, e := range byKey {
+			if e.User == user {
+				result = append(result, e)
+			}
+		}
+		return result, nil
+
+	case accountID != "":
+		return s.repo.GetByAccountID(ctx, accountID)
+
+	case user != "":
+		// No direct method, return empty (or could fetch all and filter, but not implemented)
+		return []*event.Event{}, nil
+
+	case apiKeyID != "":
+		return s.repo.GetByAPIKeyID(ctx, apiKeyID)
+
+	default:
+		// No filters – return empty slice (or could fetch all if method existed)
+		return []*event.Event{}, nil
+	}
 }

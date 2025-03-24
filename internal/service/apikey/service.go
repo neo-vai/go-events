@@ -39,13 +39,18 @@ func (s *APIKeyService) Generate(ctx context.Context, accountID string) (*apikey
 	return key, nil
 }
 
-// Deactivate API Key
-func (s *APIKeyService) Deactivate(ctx context.Context, id string) error {
+// GetByID returns API key by ID
+func (s *APIKeyService) GetByID(ctx context.Context, id string) (*apikey.APIKey, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+// UpdateActive sets active status of API key
+func (s *APIKeyService) UpdateActive(ctx context.Context, id string, active bool) error {
 	key, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	key.Active = false
+	key.Active = active
 	return s.repo.Update(ctx, key)
 }
 
@@ -54,7 +59,7 @@ func (s *APIKeyService) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// List all keys for account
+// ListByAccount returns all keys for account
 func (s *APIKeyService) ListByAccount(ctx context.Context, accountID string) ([]*apikey.APIKey, error) {
 	return s.repo.GetByAccountID(ctx, accountID)
 }

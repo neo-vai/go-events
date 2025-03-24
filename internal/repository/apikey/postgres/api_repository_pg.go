@@ -20,7 +20,7 @@ func (r *APIKeyRepositoryPG) Create(ctx context.Context, apiKey *apikey.APIKey) 
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO api_keys (id, account_id, key, active, created_at)
 		VALUES ($1, $2, $3, $4, $5)
-	`, apiKey.ID, apiKey.ID, apiKey.Key, apiKey.Active, time.Now())
+	`, apiKey.ID, apiKey.AccountID, apiKey.Key, apiKey.Active, time.Now())
 	return err
 }
 
@@ -31,7 +31,8 @@ func (r *APIKeyRepositoryPG) GetByID(ctx context.Context, id string) (*apikey.AP
 	`, id)
 
 	key := &apikey.APIKey{}
-	if err := row.Scan(&key.ID, &key.ID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
+	err := row.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt)
+	if err != nil {
 		return nil, err
 	}
 	return key, nil
@@ -50,7 +51,7 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID strin
 	var keys []*apikey.APIKey
 	for rows.Next() {
 		key := &apikey.APIKey{}
-		if err := rows.Scan(&key.ID, &key.ID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, key)
