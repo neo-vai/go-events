@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +14,7 @@ import (
 	"github.com/neo-vai/go-events/internal/handler"
 	accountHandler "github.com/neo-vai/go-events/internal/handler/account"
 	apikeyHandler "github.com/neo-vai/go-events/internal/handler/apikey"
+	authHandler "github.com/neo-vai/go-events/internal/handler/auth"
 	eventHandler "github.com/neo-vai/go-events/internal/handler/event"
 
 	account_repository_pg "github.com/neo-vai/go-events/internal/repository/account/postgres"
@@ -27,7 +30,7 @@ import (
 
 // @title Event Tracking API
 // @version 1.0
-// @description API for tracking events
+// @description API for tracking events with JWT authentication
 // @BasePath /api/v1
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
@@ -51,16 +54,20 @@ func main() {
 	accountService := account_service.NewAccountService(accountRepo)
 	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo)
 	eventService := event_service.NewEventService(eventRepo)
+	authService := accountService
 
 	accountH := accountHandler.NewHandler(accountService)
 	apiKeyH := apikeyHandler.NewHandler(apiKeyService)
 	eventH := eventHandler.NewHandler(eventService)
+	authH := authHandler.NewHandler(authService)
 
+	// Pass apiKeyService to router for API key validation
 	router := handler.NewRouter(handler.Handlers{
 		Account: accountH,
 		APIKey:  apiKeyH,
 		Event:   eventH,
-	})
+		Auth:    authH,
+	}, apiKeyService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -74,9 +81,21 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Printf("Server started on port %s", port)
+	go func() {
+		log.Printf("Server started on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server failed: %v", err)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
+	log.Println("Server exited properly")
 }

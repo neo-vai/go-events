@@ -5,16 +5,17 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/account"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AccountRepository interface {
 	Create(ctx context.Context, account *account.Account) error
-	GetByID(ctx context.Context, id string) (*account.Account, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*account.Account, error)
 	GetByLogin(ctx context.Context, login string) (*account.Account, error)
 	Update(ctx context.Context, account *account.Account) error
-	Delete(ctx context.Context, id string) error
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type AccountService struct {
@@ -51,11 +52,19 @@ func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account
 	return s.repo.Update(ctx, acc)
 }
 
-func (s *AccountService) DeleteAccount(ctx context.Context, id string) error {
+func (s *AccountService) DeleteAccount(ctx context.Context, idStr string) error {
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return errors.New("invalid account ID")
+	}
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *AccountService) GetByID(ctx context.Context, id string) (*account.Account, error) {
+func (s *AccountService) GetByID(ctx context.Context, idStr string) (*account.Account, error) {
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return nil, errors.New("invalid account ID")
+	}
 	return s.repo.GetByID(ctx, id)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neo-vai/go-events/internal/model/account"
 )
@@ -24,7 +25,7 @@ func (r *AccountRepositoryPG) Create(ctx context.Context, account *account.Accou
 	return err
 }
 
-func (r *AccountRepositoryPG) GetByID(ctx context.Context, id string) (*account.Account, error) {
+func (r *AccountRepositoryPG) GetByID(ctx context.Context, id uuid.UUID) (*account.Account, error) {
 	row := r.db.QueryRow(ctx, `
 		SELECT id, name, email, login, password_hash, created_at
 		FROM accounts WHERE id=$1
@@ -57,7 +58,7 @@ func (r *AccountRepositoryPG) Update(ctx context.Context, account *account.Accou
 	return err
 }
 
-func (r *AccountRepositoryPG) Delete(ctx context.Context, id string) error {
+func (r *AccountRepositoryPG) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, id)
 	return err
 }

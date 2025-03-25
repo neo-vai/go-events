@@ -43,7 +43,7 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 	}
 
 	acc := &account.Account{
-		ID:    uuid.New().String(),
+		ID:    uuid.New(),
 		Name:  req.Name,
 		Email: req.Email,
 		Login: req.Login,

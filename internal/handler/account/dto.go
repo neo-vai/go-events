@@ -25,7 +25,7 @@ type AccountResponse struct {
 
 func ToAccountResponse(acc *account.Account) AccountResponse {
 	return AccountResponse{
-		ID:        acc.ID,
+		ID:        acc.ID.String(), // преобразуем uuid.UUID в string
 		Name:      acc.Name,
 		Email:     acc.Email,
 		Login:     acc.Login,

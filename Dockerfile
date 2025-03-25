@@ -12,7 +12,5 @@ FROM alpine:3.23.3
 WORKDIR /app
 COPY --from=builder /app/app .
 
-COPY .env.example .env
-
 EXPOSE 8080
 CMD ["./app"]
