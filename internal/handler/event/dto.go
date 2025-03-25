@@ -4,7 +4,7 @@ import "github.com/neo-vai/go-events/internal/model/event"
 
 type CreateEventRequest struct {
 	AccountID string `json:"accountID" binding:"required"`
-	User      string `json:"user" binding:"required"`
+	Username  string `json:"user" binding:"required"`
 	APIKeyID  string `json:"apiKeyID"`
 	Name      string `json:"name" binding:"required"`
 	Payload   string `json:"payload"`
@@ -13,7 +13,7 @@ type CreateEventRequest struct {
 type EventResponse struct {
 	ID        string `json:"id"`
 	AccountID string `json:"accountID"`
-	User      string `json:"user"`
+	Username  string `json:"user"`
 	APIKeyID  string `json:"apiKeyID"`
 	Name      string `json:"name"`
 	Payload   string `json:"payload"`
@@ -24,7 +24,7 @@ func ToEventResponse(ev *event.Event) EventResponse {
 	return EventResponse{
 		ID:        ev.ID,
 		AccountID: ev.AccountID,
-		User:      ev.User,
+		Username:  ev.Username,
 		APIKeyID:  ev.APIKeyID,
 		Name:      ev.Name,
 		Payload:   ev.Payload,

@@ -11,7 +11,7 @@ import (
 type EventService interface {
 	CreateEvent(ctx context.Context, ev *event.Event) error
 	GetByID(ctx context.Context, id string) (*event.Event, error)
-	ListEvents(ctx context.Context, accountID, user, apiKeyID string) ([]*event.Event, error)
+	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
 }
 
 type Handler struct {
@@ -40,7 +40,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	}
 	ev := &event.Event{
 		AccountID: req.AccountID,
-		User:      req.User,
+		Username:  req.Username,
 		APIKeyID:  req.APIKeyID,
 		Name:      req.Name,
 		Payload:   req.Payload,
@@ -57,17 +57,17 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Tags         event
 // @Produce      json
 // @Param        account_id query string false "Filter by account ID"
-// @Param        user query string false "Filter by user"
+// @Param        user query string false "Filter by username"
 // @Param        api_key_id query string false "Filter by API key ID"
 // @Success      200 {array} EventResponse
 // @Failure      500 {object} map[string]interface{}
 // @Router       /events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
 	accountID := c.Query("account_id")
-	user := c.Query("user")
+	username := c.Query("user")
 	apiKeyID := c.Query("api_key_id")
 
-	events, err := h.service.ListEvents(c, accountID, user, apiKeyID)
+	events, err := h.service.ListEvents(c, accountID, username, apiKeyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

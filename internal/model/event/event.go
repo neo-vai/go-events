@@ -5,7 +5,7 @@ import "time"
 type Event struct {
 	ID        string
 	AccountID string
-	User      string
+	Username  string
 	APIKeyID  string
 	Name      string
 	Payload   string

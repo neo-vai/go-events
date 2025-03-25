@@ -21,7 +21,7 @@ CREATE TABLE api_keys (
 CREATE TABLE events (
     id UUID PRIMARY KEY,
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    user TEXT NOT NULL,
+    username TEXT NOT NULL,
     api_key_id UUID REFERENCES api_keys(id) ON DELETE SET NULL,
     name TEXT NOT NULL,
     payload JSONB,
@@ -30,6 +30,6 @@ CREATE TABLE events (
 
 -- Indexes for performance
 CREATE INDEX idx_events_account_id ON events(account_id);
-CREATE INDEX idx_events_user ON events(user);
+CREATE INDEX idx_events_username ON events(username);
 CREATE INDEX idx_events_name ON events(name);
 CREATE INDEX idx_events_created_at ON events(created_at);
