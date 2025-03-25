@@ -32,7 +32,7 @@ func NewHandler(service APIKeyService) *Handler {
 // @Param        id path string true "Account ID"
 // @Success      201 {object} APIKeyResponse
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id}/keys [post]
+// @Router       /accounts/{id}/keys [post]
 func (h *Handler) GenerateAPIKey(c *gin.Context) {
 	accountID := c.Param("id")
 	key, err := h.service.Generate(c, accountID)
@@ -51,7 +51,7 @@ func (h *Handler) GenerateAPIKey(c *gin.Context) {
 // @Param        id path string true "Account ID"
 // @Success      200 {array} APIKeyResponse
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id}/keys [get]
+// @Router       /accounts/{id}/keys [get]
 func (h *Handler) ListAPIKeys(c *gin.Context) {
 	accountID := c.Param("id")
 	keys, err := h.service.ListByAccount(c, accountID)
@@ -77,7 +77,7 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 // @Success      200 {object} APIKeyResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id}/keys/{key_id} [patch]
+// @Router       /accounts/{id}/keys/{key_id} [patch]
 func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 	keyID := c.Param("key_id")
 	var req UpdateAPIKeyActiveRequest
@@ -105,7 +105,7 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 // @Param        key_id path string true "API Key ID"
 // @Success      204 "No Content"
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id}/keys/{key_id} [delete]
+// @Router       /accounts/{id}/keys/{key_id} [delete]
 func (h *Handler) DeleteAPIKey(c *gin.Context) {
 	keyID := c.Param("key_id")
 	if err := h.service.Delete(c, keyID); err != nil {

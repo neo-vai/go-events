@@ -31,7 +31,7 @@ func NewHandler(service EventService) *Handler {
 // @Success      201 {object} EventResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/events [post]
+// @Router       /events [post]
 func (h *Handler) CreateEvent(c *gin.Context) {
 	var req CreateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -61,7 +61,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Param        api_key_id query string false "Filter by API key ID"
 // @Success      200 {array} EventResponse
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/events [get]
+// @Router       /events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
 	accountID := c.Query("account_id")
 	user := c.Query("user")
@@ -87,7 +87,7 @@ func (h *Handler) ListEvents(c *gin.Context) {
 // @Success      200 {object} EventResponse
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/events/{id} [get]
+// @Router       /events/{id} [get]
 func (h *Handler) GetEvent(c *gin.Context) {
 	id := c.Param("id")
 	ev, err := h.service.GetByID(c, id)

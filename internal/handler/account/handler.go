@@ -34,7 +34,7 @@ func NewHandler(service AccountService) *Handler {
 // @Success      201 {object} AccountResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts [post]
+// @Router       /accounts [post]
 func (h *Handler) CreateAccount(c *gin.Context) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -65,7 +65,7 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 // @Success      200 {object} AccountResponse
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id} [get]
+// @Router       /accounts/{id} [get]
 func (h *Handler) GetAccount(c *gin.Context) {
 	id := c.Param("id")
 	acc, err := h.service.GetByID(c, id)
@@ -87,7 +87,7 @@ func (h *Handler) GetAccount(c *gin.Context) {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id} [put]
+// @Router       /accounts/{id} [put]
 func (h *Handler) UpdateAccount(c *gin.Context) {
 	id := c.Param("id")
 	var req UpdateAccountRequest
@@ -128,7 +128,7 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 // @Success      204 "No Content"
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/accounts/{id} [delete]
+// @Router       /accounts/{id} [delete]
 func (h *Handler) DeleteAccount(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.service.DeleteAccount(c, id); err != nil {
