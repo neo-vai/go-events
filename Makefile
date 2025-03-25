@@ -32,7 +32,10 @@ help:
 	@echo "  make build           - Build Go binary"
 	@echo "  make run             - Run application locally"
 	@echo "  make up              - Start services with docker-compose"
+	@echo "  make up-logs         - Start services and follow logs"
 	@echo "  make down            - Stop services"
+	@echo "  make logs            - Follow logs of all services"
+	@echo "  make logs SERVICE=   - Follow logs of specific service (e.g., SERVICE=go-events)"
 	@echo "  make lint            - Run golangci-lint"
 	@echo "  make migrate-up      - Apply database migrations"
 	@echo "  make migrate-down    - Rollback migrations"
@@ -76,6 +79,14 @@ up:
 .PHONY: down
 down:
 	$(DOCKER_COMPOSE) down
+
+.PHONY: logs
+logs:
+	@if [ -z "$(SERVICE)" ]; then \
+		$(DOCKER_COMPOSE) logs -f; \
+	else \
+		$(DOCKER_COMPOSE) logs -f $(SERVICE); \
+	fi
 
 .PHONY: lint
 lint:
