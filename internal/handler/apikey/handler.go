@@ -2,10 +2,12 @@ package apikey
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neo-vai/go-events/internal/model/apikey"
+	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
 )
 
 type APIKeyService interface {
@@ -31,13 +33,31 @@ func NewHandler(service APIKeyService) *Handler {
 // @Produce      json
 // @Param        id path string true "Account ID"
 // @Success      201 {object} APIKeyResponse
+// @Failure      400 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys [post]
 func (h *Handler) GenerateAPIKey(c *gin.Context) {
 	accountID := c.Param("id")
 	key, err := h.service.Generate(c, accountID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		switch {
+		case errors.Is(err, apikey_service.ErrInvalidAccountID):
+			status = http.StatusBadRequest
+			message = "invalid account ID"
+		case errors.Is(err, apikey_service.ErrAccountNotFound):
+			status = http.StatusNotFound
+			message = "account not found"
+		case errors.Is(err, apikey_service.ErrKeyAlreadyExists):
+			status = http.StatusConflict
+			message = "API key already exists"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	c.JSON(http.StatusCreated, ToAPIKeyResponse(key))
@@ -50,13 +70,22 @@ func (h *Handler) GenerateAPIKey(c *gin.Context) {
 // @Produce      json
 // @Param        id path string true "Account ID"
 // @Success      200 {array} APIKeyResponse
+// @Failure      400 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys [get]
 func (h *Handler) ListAPIKeys(c *gin.Context) {
 	accountID := c.Param("id")
 	keys, err := h.service.ListByAccount(c, accountID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, apikey_service.ErrInvalidAccountID) {
+			status = http.StatusBadRequest
+			message = "invalid account ID"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	resp := make([]APIKeyResponse, len(keys))
@@ -76,7 +105,10 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 // @Param        body body UpdateAPIKeyActiveRequest true "Active status"
 // @Success      200 {object} APIKeyResponse
 // @Failure      400 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys/{key_id} [patch]
 func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 	keyID := c.Param("key_id")
@@ -86,12 +118,28 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateActive(c, keyID, *req.Active); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		switch {
+		case errors.Is(err, apikey_service.ErrInvalidKeyID):
+			status = http.StatusBadRequest
+			message = "invalid key ID"
+		case errors.Is(err, apikey_service.ErrKeyNotFound):
+			status = http.StatusNotFound
+			message = "API key not found"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	key, err := h.service.GetByID(c, keyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, apikey_service.ErrKeyNotFound) {
+			status = http.StatusNotFound
+			message = "API key not found"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	c.JSON(http.StatusOK, ToAPIKeyResponse(key))
@@ -104,12 +152,26 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 // @Param        id path string true "Account ID"
 // @Param        key_id path string true "API Key ID"
 // @Success      204 "No Content"
+// @Failure      400 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys/{key_id} [delete]
 func (h *Handler) DeleteAPIKey(c *gin.Context) {
 	keyID := c.Param("key_id")
 	if err := h.service.Delete(c, keyID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		switch {
+		case errors.Is(err, apikey_service.ErrInvalidKeyID):
+			status = http.StatusBadRequest
+			message = "invalid key ID"
+		case errors.Is(err, apikey_service.ErrKeyNotFound):
+			status = http.StatusNotFound
+			message = "API key not found"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	c.Status(http.StatusNoContent)

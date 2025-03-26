@@ -1,3 +1,5 @@
+// file: internal/handler/event/handler_test.go
+
 package event
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/event"
+	event_service "github.com/neo-vai/go-events/internal/service/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -44,7 +47,7 @@ func (m *MockEventService) ListEvents(ctx context.Context, accountID, username, 
 
 func setupEventRouter(service EventService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.Default()
+	r := gin.New()
 	h := NewHandler(service)
 	r.POST("/api/v1/events", h.CreateEvent)
 	r.GET("/api/v1/events", h.ListEvents)
@@ -82,7 +85,6 @@ func TestCreateEvent_Success(t *testing.T) {
 	assert.Equal(t, reqBody.AccountID, resp.AccountID)
 	assert.Equal(t, reqBody.Username, resp.Username)
 	assert.Equal(t, reqBody.Name, resp.Name)
-	// ID не проверяем, т.к. мок его не выставляет
 	svc.AssertExpectations(t)
 }
 
@@ -231,7 +233,7 @@ func TestGetEvent_NotFound(t *testing.T) {
 	router := setupEventRouter(svc)
 
 	eventID := uuid.New().String()
-	svc.On("GetByID", mock.Anything, eventID).Return(nil, errors.New("not found")).Once()
+	svc.On("GetByID", mock.Anything, eventID).Return(nil, event_service.ErrEventNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/events/"+eventID, nil)

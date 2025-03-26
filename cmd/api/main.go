@@ -28,10 +28,20 @@ import (
 	_ "github.com/neo-vai/go-events/docs"
 )
 
-// @title Event Tracking API
-// @version 1.0
-// @description API for tracking events with JWT authentication
-// @BasePath /api/v1
+// @title           Event Tracking API
+// @version         1.0
+// @description     API for tracking events with JWT authentication
+// @BasePath        /api/v1
+//
+// @securityDefinitions.apikey  BearerAuth
+// @in                          header
+// @name                        Authorization
+// @description                 JWT token (format: "Bearer <token>")
+//
+// @securityDefinitions.apikey  ApiKeyAuth
+// @in                          header
+// @name                        X-API-Key
+// @description                 API key for authentication
 func main() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {

@@ -2,10 +2,12 @@ package event
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neo-vai/go-events/internal/model/event"
+	event_service "github.com/neo-vai/go-events/internal/service/event"
 )
 
 type EventService interface {
@@ -31,6 +33,8 @@ func NewHandler(service EventService) *Handler {
 // @Success      201 {object} EventResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /events [post]
 func (h *Handler) CreateEvent(c *gin.Context) {
 	var req CreateEventRequest
@@ -61,6 +65,8 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Param        api_key_id query string false "Filter by API key ID"
 // @Success      200 {array} EventResponse
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
 	accountID := c.Query("account_id")
@@ -87,12 +93,18 @@ func (h *Handler) ListEvents(c *gin.Context) {
 // @Success      200 {object} EventResponse
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /events/{id} [get]
 func (h *Handler) GetEvent(c *gin.Context) {
 	id := c.Param("id")
 	ev, err := h.service.GetByID(c, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		if errors.Is(err, event_service.ErrEventNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, ToEventResponse(ev))

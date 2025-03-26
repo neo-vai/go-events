@@ -2,10 +2,18 @@ package event
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo-vai/go-events/internal/model/event"
+)
+
+// Domain errors
+var (
+	ErrEventNotFound  = errors.New("event not found")
+	ErrInvalidEventID = errors.New("invalid event ID")
 )
 
 type EventRepository interface {
@@ -27,11 +35,25 @@ func NewEventService(repo EventRepository) *EventService {
 func (s *EventService) CreateEvent(ctx context.Context, ev *event.Event) error {
 	ev.ID = uuid.New().String()
 	ev.CreatedAt = time.Now()
-	return s.repo.Create(ctx, ev)
+	err := s.repo.Create(ctx, ev)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		// Если нарушение внешнего ключа (account_id или api_key_id) – возвращаем исходную ошибку,
+		// handler вернёт 500. Можно добавить более детальные ошибки при необходимости.
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			// foreign key violation
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *EventService) GetByID(ctx context.Context, id string) (*event.Event, error) {
-	return s.repo.GetByID(ctx, id)
+	ev, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrEventNotFound
+	}
+	return ev, nil
 }
 
 func (s *EventService) ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error) {

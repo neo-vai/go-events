@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/apikey"
+	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -57,7 +58,7 @@ func (m *MockAPIKeyService) Delete(ctx context.Context, id string) error {
 
 func setupAPIKeyRouter(service APIKeyService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.Default()
+	r := gin.New()
 	h := NewHandler(service)
 	r.POST("/api/v1/accounts/:id/keys", h.GenerateAPIKey)
 	r.GET("/api/v1/accounts/:id/keys", h.ListAPIKeys)
@@ -95,6 +96,59 @@ func TestGenerateAPIKey_Success(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestGenerateAPIKey_InvalidAccountID(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	svc.On("Generate", mock.Anything, "invalid").Return(nil, apikey_service.ErrInvalidAccountID).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/accounts/invalid/keys", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid account ID", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
+func TestGenerateAPIKey_AccountNotFound(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	accountID := uuid.New().String()
+	svc.On("Generate", mock.Anything, accountID).Return(nil, apikey_service.ErrAccountNotFound).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/accounts/"+accountID+"/keys", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "account not found", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
+func TestGenerateAPIKey_KeyAlreadyExists(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	accountID := uuid.New().String()
+	svc.On("Generate", mock.Anything, accountID).Return(nil, apikey_service.ErrKeyAlreadyExists).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/accounts/"+accountID+"/keys", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "API key already exists", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
 func TestGenerateAPIKey_ServiceError(t *testing.T) {
 	svc := new(MockAPIKeyService)
 	router := setupAPIKeyRouter(svc)
@@ -104,21 +158,6 @@ func TestGenerateAPIKey_ServiceError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/accounts/"+accountID+"/keys", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	svc.AssertExpectations(t)
-}
-
-func TestGenerateAPIKey_InvalidAccountID(t *testing.T) {
-	svc := new(MockAPIKeyService)
-	router := setupAPIKeyRouter(svc)
-
-	// Service returns error for invalid UUID, handler passes it through
-	svc.On("Generate", mock.Anything, "invalid").Return(nil, errors.New("invalid account ID")).Once()
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/accounts/invalid/keys", nil)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -168,6 +207,23 @@ func TestListAPIKeys_Empty(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Empty(t, resp)
+	svc.AssertExpectations(t)
+}
+
+func TestListAPIKeys_InvalidAccountID(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	svc.On("ListByAccount", mock.Anything, "invalid").Return(nil, apikey_service.ErrInvalidAccountID).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/accounts/invalid/keys", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid account ID", errResp["error"])
 	svc.AssertExpectations(t)
 }
 
@@ -234,6 +290,51 @@ func TestUpdateAPIKeyActive_InvalidJSON(t *testing.T) {
 	svc.AssertNotCalled(t, "UpdateActive", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestUpdateAPIKeyActive_InvalidKeyID(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	activeVal := true
+	reqBody := UpdateAPIKeyActiveRequest{Active: &activeVal}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("UpdateActive", mock.Anything, "invalid", true).Return(apikey_service.ErrInvalidKeyID).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/accounts/acc/keys/invalid", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid key ID", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
+func TestUpdateAPIKeyActive_KeyNotFound(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	keyID := uuid.New().String()
+	activeVal := true
+	reqBody := UpdateAPIKeyActiveRequest{Active: &activeVal}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("UpdateActive", mock.Anything, keyID, true).Return(apikey_service.ErrKeyNotFound).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/accounts/acc/keys/"+keyID, bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "API key not found", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
 func TestUpdateAPIKeyActive_UpdateError(t *testing.T) {
 	svc := new(MockAPIKeyService)
 	router := setupAPIKeyRouter(svc)
@@ -264,14 +365,17 @@ func TestUpdateAPIKeyActive_GetByIDError(t *testing.T) {
 	jsonBody, _ := json.Marshal(reqBody)
 
 	svc.On("UpdateActive", mock.Anything, keyID, true).Return(nil).Once()
-	svc.On("GetByID", mock.Anything, keyID).Return(nil, errors.New("not found")).Once()
+	svc.On("GetByID", mock.Anything, keyID).Return(nil, apikey_service.ErrKeyNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("PATCH", "/api/v1/accounts/acc/keys/"+keyID, bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "API key not found", errResp["error"])
 	svc.AssertExpectations(t)
 }
 
@@ -290,6 +394,41 @@ func TestDeleteAPIKey_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestDeleteAPIKey_InvalidKeyID(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	svc.On("Delete", mock.Anything, "invalid").Return(apikey_service.ErrInvalidKeyID).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/accounts/acc/keys/invalid", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid key ID", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
+func TestDeleteAPIKey_KeyNotFound(t *testing.T) {
+	svc := new(MockAPIKeyService)
+	router := setupAPIKeyRouter(svc)
+
+	keyID := uuid.New().String()
+	svc.On("Delete", mock.Anything, keyID).Return(apikey_service.ErrKeyNotFound).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/accounts/acc/keys/"+keyID, nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "API key not found", errResp["error"])
 	svc.AssertExpectations(t)
 }
 

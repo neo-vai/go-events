@@ -6,8 +6,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo-vai/go-events/internal/model/account"
 	"golang.org/x/crypto/bcrypt"
+)
+
+// Domain errors
+var (
+	ErrEmailAlreadyExists = errors.New("email already exists")
+	ErrLoginAlreadyExists = errors.New("login already exists")
+	ErrAccountNotFound    = errors.New("account not found")
+	ErrInvalidPassword    = errors.New("invalid password")
+	ErrInvalidAccountID   = errors.New("invalid account ID")
 )
 
 // PasswordHasher abstracts password hashing operations.
@@ -68,6 +78,7 @@ func NewAccountService(repo AccountRepository, hasher PasswordHasher) *AccountSe
 }
 
 // CreateAccount creates a new account after hashing the password.
+// Returns domain-specific errors on conflict.
 func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account, password string) error {
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
@@ -75,31 +86,58 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 	}
 	acc.PasswordHash = hash
 	acc.CreatedAt = time.Now()
-	return s.repo.Create(ctx, acc)
+
+	err = s.repo.Create(ctx, acc)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if pgErr.ConstraintName == "accounts_email_key" {
+				return ErrEmailAlreadyExists
+			}
+			if pgErr.ConstraintName == "accounts_login_key" {
+				return ErrLoginAlreadyExists
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // VerifyPassword checks if the provided password matches the stored hash.
 func (s *AccountService) VerifyPassword(ctx context.Context, login, password string) (bool, error) {
 	acc, err := s.repo.GetByLogin(ctx, login)
 	if err != nil {
-		return false, err
+		return false, ErrAccountNotFound
 	}
 	if err := s.hasher.Compare(acc.PasswordHash, password); err != nil {
-		return false, errors.New("invalid password")
+		return false, ErrInvalidPassword
 	}
 	return true, nil
 }
 
 // UpdateAccount updates account details.
 func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account) error {
-	return s.repo.Update(ctx, acc)
+	err := s.repo.Update(ctx, acc)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if pgErr.ConstraintName == "accounts_email_key" {
+				return ErrEmailAlreadyExists
+			}
+			if pgErr.ConstraintName == "accounts_login_key" {
+				return ErrLoginAlreadyExists
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // DeleteAccount deletes an account by its string ID.
 func (s *AccountService) DeleteAccount(ctx context.Context, idStr string) error {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return errors.New("invalid account ID")
+		return ErrInvalidAccountID
 	}
 	return s.repo.Delete(ctx, id)
 }
@@ -108,12 +146,20 @@ func (s *AccountService) DeleteAccount(ctx context.Context, idStr string) error 
 func (s *AccountService) GetByID(ctx context.Context, idStr string) (*account.Account, error) {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return nil, errors.New("invalid account ID")
+		return nil, ErrInvalidAccountID
 	}
-	return s.repo.GetByID(ctx, id)
+	acc, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrAccountNotFound
+	}
+	return acc, nil
 }
 
 // GetByLogin retrieves an account by login.
 func (s *AccountService) GetByLogin(ctx context.Context, login string) (*account.Account, error) {
-	return s.repo.GetByLogin(ctx, login)
+	acc, err := s.repo.GetByLogin(ctx, login)
+	if err != nil {
+		return nil, ErrAccountNotFound
+	}
+	return acc, nil
 }

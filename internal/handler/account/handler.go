@@ -2,11 +2,13 @@ package account
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/account"
+	account_service "github.com/neo-vai/go-events/internal/service/account"
 )
 
 type AccountService interface {
@@ -33,6 +35,7 @@ func NewHandler(service AccountService) *Handler {
 // @Param        body body CreateAccountRequest true "Account data"
 // @Success      201 {object} AccountResponse
 // @Failure      400 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Router       /accounts [post]
 func (h *Handler) CreateAccount(c *gin.Context) {
@@ -49,8 +52,19 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 		Login: req.Login,
 	}
 
-	if err := h.service.CreateAccount(c, acc, req.Password); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	err := h.service.CreateAccount(c, acc, req.Password)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := err.Error()
+		switch {
+		case errors.Is(err, account_service.ErrEmailAlreadyExists):
+			status = http.StatusConflict
+			message = "email already exists"
+		case errors.Is(err, account_service.ErrLoginAlreadyExists):
+			status = http.StatusConflict
+			message = "login already exists"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 
@@ -65,12 +79,21 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 // @Success      200 {object} AccountResponse
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id} [get]
 func (h *Handler) GetAccount(c *gin.Context) {
 	id := c.Param("id")
 	acc, err := h.service.GetByID(c, id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, account_service.ErrAccountNotFound) ||
+			errors.Is(err, account_service.ErrInvalidAccountID) {
+			status = http.StatusNotFound
+			message = "account not found"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	c.JSON(http.StatusOK, ToAccountResponse(acc))
@@ -86,7 +109,10 @@ func (h *Handler) GetAccount(c *gin.Context) {
 // @Success      200 {object} AccountResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id} [put]
 func (h *Handler) UpdateAccount(c *gin.Context) {
 	id := c.Param("id")
@@ -112,8 +138,19 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 		existing.Login = req.Login
 	}
 
-	if err := h.service.UpdateAccount(c, existing); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	err = h.service.UpdateAccount(c, existing)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := err.Error()
+		switch {
+		case errors.Is(err, account_service.ErrEmailAlreadyExists):
+			status = http.StatusConflict
+			message = "email already exists"
+		case errors.Is(err, account_service.ErrLoginAlreadyExists):
+			status = http.StatusConflict
+			message = "login already exists"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 
@@ -128,11 +165,21 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 // @Success      204 "No Content"
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
+// @Security     BearerAuth
+// @Security     ApiKeyAuth
 // @Router       /accounts/{id} [delete]
 func (h *Handler) DeleteAccount(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.service.DeleteAccount(c, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+	err := h.service.DeleteAccount(c, id)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, account_service.ErrAccountNotFound) ||
+			errors.Is(err, account_service.ErrInvalidAccountID) {
+			status = http.StatusNotFound
+			message = "account not found"
+		}
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	c.Status(http.StatusNoContent)

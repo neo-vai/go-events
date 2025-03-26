@@ -1,3 +1,5 @@
+// file: internal/handler/account/handler_test.go
+
 package account
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/account"
+	account_service "github.com/neo-vai/go-events/internal/service/account"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -42,7 +45,7 @@ func (m *MockAccountService) DeleteAccount(ctx context.Context, id string) error
 
 func setupRouter(service AccountService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	r := gin.Default()
+	r := gin.New()
 	h := NewHandler(service)
 	r.POST("/api/v1/accounts", h.CreateAccount)
 	r.GET("/api/v1/accounts/:id", h.GetAccount)
@@ -80,6 +83,60 @@ func TestCreateAccount_Success(t *testing.T) {
 	assert.Equal(t, reqBody.Email, resp.Email)
 	assert.Equal(t, reqBody.Login, resp.Login)
 	assert.NotEmpty(t, resp.ID)
+	svc.AssertExpectations(t)
+}
+
+func TestCreateAccount_EmailConflict(t *testing.T) {
+	svc := new(MockAccountService)
+	router := setupRouter(svc)
+
+	reqBody := CreateAccountRequest{
+		Name:     "John Doe",
+		Email:    "duplicate@example.com",
+		Login:    "unique_login",
+		Password: "secure123",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("CreateAccount", mock.Anything, mock.AnythingOfType("*account.Account"), "secure123").
+		Return(account_service.ErrEmailAlreadyExists).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/accounts", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "email already exists", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
+func TestCreateAccount_LoginConflict(t *testing.T) {
+	svc := new(MockAccountService)
+	router := setupRouter(svc)
+
+	reqBody := CreateAccountRequest{
+		Name:     "John Doe",
+		Email:    "unique@example.com",
+		Login:    "duplicate_login",
+		Password: "secure123",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("CreateAccount", mock.Anything, mock.AnythingOfType("*account.Account"), "secure123").
+		Return(account_service.ErrLoginAlreadyExists).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/accounts", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "login already exists", errResp["error"])
 	svc.AssertExpectations(t)
 }
 
@@ -173,7 +230,7 @@ func TestGetAccount_NotFound(t *testing.T) {
 	router := setupRouter(svc)
 
 	id := uuid.New().String()
-	svc.On("GetByID", mock.Anything, id).Return(nil, errors.New("not found")).Once()
+	svc.On("GetByID", mock.Anything, id).Return(nil, account_service.ErrAccountNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/accounts/"+id, nil)
@@ -259,6 +316,38 @@ func TestUpdateAccount_PartialUpdate(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestUpdateAccount_EmailConflict(t *testing.T) {
+	svc := new(MockAccountService)
+	router := setupRouter(svc)
+
+	id := uuid.New()
+	existing := &account.Account{
+		ID:    id,
+		Name:  "Old",
+		Email: "old@example.com",
+		Login: "oldlogin",
+	}
+
+	updateReq := UpdateAccountRequest{
+		Email: "duplicate@example.com",
+	}
+	jsonBody, _ := json.Marshal(updateReq)
+
+	svc.On("GetByID", mock.Anything, id.String()).Return(existing, nil).Once()
+	svc.On("UpdateAccount", mock.Anything, mock.Anything).Return(account_service.ErrEmailAlreadyExists).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/accounts/"+id.String(), bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "email already exists", errResp["error"])
+	svc.AssertExpectations(t)
+}
+
 func TestUpdateAccount_InvalidJSON(t *testing.T) {
 	svc := new(MockAccountService)
 	router := setupRouter(svc)
@@ -280,7 +369,7 @@ func TestUpdateAccount_NotFound(t *testing.T) {
 	updateReq := UpdateAccountRequest{Name: "New"}
 	jsonBody, _ := json.Marshal(updateReq)
 
-	svc.On("GetByID", mock.Anything, id).Return(nil, errors.New("not found")).Once()
+	svc.On("GetByID", mock.Anything, id).Return(nil, account_service.ErrAccountNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("PUT", "/api/v1/accounts/"+id, bytes.NewReader(jsonBody))
@@ -333,7 +422,7 @@ func TestDeleteAccount_NotFound(t *testing.T) {
 	router := setupRouter(svc)
 
 	id := uuid.New().String()
-	svc.On("DeleteAccount", mock.Anything, id).Return(errors.New("not found")).Once()
+	svc.On("DeleteAccount", mock.Anything, id).Return(account_service.ErrAccountNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("DELETE", "/api/v1/accounts/"+id, nil)
