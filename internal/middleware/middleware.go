@@ -20,15 +20,17 @@ type contextKey string
 const (
 	AccountIDKey contextKey = "accountID"
 	RequestIDKey contextKey = "requestID"
+	RoleKey      contextKey = "role"
 )
 
 type Claims struct {
 	AccountID string `json:"account_id"`
+	Role      string `json:"role"`
 	jwt.RegisteredClaims
 }
 
-// GenerateJWT creates a new JWT token.
-func GenerateJWT(accountID string) (string, error) {
+// GenerateJWT creates a new JWT token including the user's role.
+func GenerateJWT(accountID, role string) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		secret = "default-secret-change-me"
@@ -41,6 +43,7 @@ func GenerateJWT(accountID string) (string, error) {
 	}
 	claims := Claims{
 		AccountID: accountID,
+		Role:      role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiresHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -85,6 +88,7 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 		c.Set(string(AccountIDKey), claims.AccountID)
+		c.Set(string(RoleKey), claims.Role)
 		c.Next()
 	}
 }
@@ -92,7 +96,8 @@ func JWTAuth() gin.HandlerFunc {
 // UniversalAuth tries JWT first if Authorization header is present, otherwise falls back to API key.
 // It does NOT fall back from an invalid JWT to a valid API key; if a JWT is provided,
 // it must be valid for the request to proceed.
-func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, error)) gin.HandlerFunc {
+// For API key authentication, it fetches the account and sets both accountID and role.
+func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role string, err error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
@@ -101,6 +106,7 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, e
 				claims, err := ValidateJWT(parts[1])
 				if err == nil {
 					c.Set(string(AccountIDKey), claims.AccountID)
+					c.Set(string(RoleKey), claims.Role)
 					c.Next()
 					return
 				}
@@ -112,9 +118,10 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, e
 
 		apiKey := c.GetHeader("X-API-Key")
 		if apiKey != "" && apiKeyValidator != nil {
-			accountID, err := apiKeyValidator(c, apiKey)
+			accountID, role, err := apiKeyValidator(c, apiKey)
 			if err == nil && accountID != "" {
 				c.Set(string(AccountIDKey), accountID)
+				c.Set(string(RoleKey), role)
 				c.Next()
 				return
 			}
@@ -220,6 +227,18 @@ func OwnerCheck() gin.HandlerFunc {
 		}
 		if accountID != resourceID {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireAdmin checks if the authenticated user has admin role.
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get(string(RoleKey))
+		if !exists || role != "admin" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin access required"})
 			return
 		}
 		c.Next()

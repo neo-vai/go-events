@@ -50,7 +50,16 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	valid, err := h.accountSvc.VerifyPassword(c, req.Login, req.Password)
-	if err != nil || !valid {
+	if err != nil {
+		// Check for inactive account error
+		if err.Error() == "account is inactive" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "account is inactive"})
+			return
+		}
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		return
+	}
+	if !valid {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
@@ -59,8 +68,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve account"})
 		return
 	}
-	// Преобразуем uuid.UUID в string
-	token, err := middleware.GenerateJWT(acc.ID.String())
+	token, err := middleware.GenerateJWT(acc.ID.String(), acc.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return

@@ -26,6 +26,8 @@ func createTestAccount(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 		Email:        uuid.New().String() + "@example.com",
 		Login:        uuid.New().String(),
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	err := repo.Create(ctx, acc)

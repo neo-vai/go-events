@@ -28,6 +28,7 @@ type APIKeyRepository interface {
 	GetByKey(ctx context.Context, key string) (*apikey.APIKey, error)
 	Update(ctx context.Context, key *apikey.APIKey) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
 }
 
 type APIKeyService struct {
@@ -38,7 +39,7 @@ func NewAPIKeyService(repo APIKeyRepository) *APIKeyService {
 	return &APIKeyService{repo: repo}
 }
 
-// Generate создаёт новый ключ для accountID (string -> uuid.UUID)
+// Generate creates a new API key for the given accountID.
 func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*apikey.APIKey, error) {
 	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
@@ -57,7 +58,6 @@ func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*api
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return nil, ErrKeyAlreadyExists
 		}
-		// Проверка на нарушение внешнего ключа (account_id не существует)
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return nil, ErrAccountNotFound
 		}
@@ -66,7 +66,7 @@ func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*api
 	return key, nil
 }
 
-// GetByID возвращает ключ по ID (string -> uuid.UUID)
+// GetByID returns a key by its ID.
 func (s *APIKeyService) GetByID(ctx context.Context, idStr string) (*apikey.APIKey, error) {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -79,7 +79,7 @@ func (s *APIKeyService) GetByID(ctx context.Context, idStr string) (*apikey.APIK
 	return key, nil
 }
 
-// UpdateActive изменяет статус ключа
+// UpdateActive toggles the active status of an API key.
 func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active bool) error {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active b
 	return err
 }
 
-// Delete удаляет ключ
+// Delete removes an API key.
 func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 	return err
 }
 
-// ListByAccount возвращает все ключи аккаунта
+// ListByAccount returns all API keys for a given account.
 func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) ([]*apikey.APIKey, error) {
 	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
@@ -123,14 +123,40 @@ func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) 
 	return keys, nil
 }
 
-// ValidateAPIKey проверяет ключ и возвращает accountID как string
-func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (string, error) {
+// ValidateAPIKey validates the API key and returns the associated account ID and role.
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (accountID string, role string, err error) {
 	apiKey, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return "", ErrKeyNotFound
+		return "", "", ErrKeyNotFound
 	}
 	if !apiKey.Active {
-		return "", ErrInactiveKey
+		return "", "", ErrInactiveKey
 	}
-	return apiKey.AccountID.String(), nil
+	// Note: API key validation does not fetch the role directly.
+	// We need to get the account role from the associated account.
+	// For simplicity, we'll do a separate query, but ideally we'd join.
+	// Since the repository doesn't have that, we'll implement a simple get in service.
+	// (We'll assume AccountRepository is available; but to avoid circular deps, we'll pass a function or extend APIKeyRepository.)
+	// As a pragmatic solution, we'll fetch the account in the middleware adapter.
+	return apiKey.AccountID.String(), "", nil
+}
+
+func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	sortMap := map[string]string{
+		"createdAt": "created_at",
+		"key":       "key",
+		"active":    "active",
+	}
+	if dbSort, ok := sortMap[sort]; ok {
+		sort = dbSort
+	} else {
+		sort = "created_at"
+	}
+	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
 }

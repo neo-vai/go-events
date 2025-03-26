@@ -12,4 +12,5 @@ type EventRepository interface {
 	GetByAccountID(ctx context.Context, accountID string) ([]*event.Event, error)
 	GetByAccountAndUser(ctx context.Context, accountID, username string) ([]*event.Event, error)
 	GetByAPIKeyID(ctx context.Context, apiKeyID string) ([]*event.Event, error)
+	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
 }

@@ -13,6 +13,8 @@ type Account struct {
 	Email        string
 	Login        string
 	PasswordHash string
+	Role         string
+	Active       bool
 	CreatedAt    time.Time
 	APIKeys      []apikey.APIKey
 }

@@ -171,19 +171,21 @@ func TestGenerateJWT_And_ValidateJWT(t *testing.T) {
 	os.Setenv("JWT_EXPIRES_HOURS", "1")
 
 	accountID := "acc-123"
-	token, err := GenerateJWT(accountID)
+	role := "user"
+	token, err := GenerateJWT(accountID, role)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
 	claims, err := ValidateJWT(token)
 	require.NoError(t, err)
 	assert.Equal(t, accountID, claims.AccountID)
+	assert.Equal(t, role, claims.Role)
 	assert.NotNil(t, claims.ExpiresAt)
 }
 
 func TestValidateJWT_InvalidSignature(t *testing.T) {
 	setJWTSecret(t, "good-secret")
-	token, _ := GenerateJWT("acc")
+	token, _ := GenerateJWT("acc", "user")
 	setJWTSecret(t, "wrong-secret")
 	_, err := ValidateJWT(token)
 	assert.Error(t, err)
@@ -192,7 +194,7 @@ func TestValidateJWT_InvalidSignature(t *testing.T) {
 func TestValidateJWT_ExpiredToken(t *testing.T) {
 	setJWTSecret(t, "secret")
 	os.Setenv("JWT_EXPIRES_HOURS", "-1") // negative to expire immediately
-	token, _ := GenerateJWT("acc")
+	token, _ := GenerateJWT("acc", "user")
 	time.Sleep(1 * time.Second)
 	_, err := ValidateJWT(token)
 	assert.Error(t, err)
@@ -208,7 +210,7 @@ func TestJWTAuth_ValidToken(t *testing.T) {
 		c.String(200, c.GetString(string(AccountIDKey)))
 	})
 
-	token, _ := GenerateJWT("test-account")
+	token, _ := GenerateJWT("test-account", "user")
 	req := httptest.NewRequest("GET", "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -242,7 +244,7 @@ func TestJWTAuth_InvalidFormat(t *testing.T) {
 func TestJWTAuth_ExpiredToken(t *testing.T) {
 	setJWTSecret(t, "secret")
 	os.Setenv("JWT_EXPIRES_HOURS", "-1")
-	token, _ := GenerateJWT("acc")
+	token, _ := GenerateJWT("acc", "user")
 	os.Setenv("JWT_EXPIRES_HOURS", "24")
 	r := gin.New()
 	r.Use(JWTAuth())
@@ -257,8 +259,8 @@ func TestJWTAuth_ExpiredToken(t *testing.T) {
 // ---------- UniversalAuth ----------
 func TestUniversalAuth_JWT_Success(t *testing.T) {
 	setJWTSecret(t, "secret")
-	validator := func(c *gin.Context, key string) (string, error) {
-		return "", nil // not called
+	validator := func(c *gin.Context, key string) (string, string, error) {
+		return "", "", nil // not called
 	}
 	r := gin.New()
 	r.Use(UniversalAuth(validator))
@@ -266,7 +268,7 @@ func TestUniversalAuth_JWT_Success(t *testing.T) {
 		c.String(200, c.GetString(string(AccountIDKey)))
 	})
 
-	token, _ := GenerateJWT("acc-jwt")
+	token, _ := GenerateJWT("acc-jwt", "user")
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -276,11 +278,11 @@ func TestUniversalAuth_JWT_Success(t *testing.T) {
 }
 
 func TestUniversalAuth_APIKey_Success(t *testing.T) {
-	validator := func(c *gin.Context, key string) (string, error) {
+	validator := func(c *gin.Context, key string) (string, string, error) {
 		if key == "valid-key" {
-			return "acc-apikey", nil
+			return "acc-apikey", "user", nil
 		}
-		return "", nil
+		return "", "", nil
 	}
 	r := gin.New()
 	r.Use(UniversalAuth(validator))
@@ -297,8 +299,8 @@ func TestUniversalAuth_APIKey_Success(t *testing.T) {
 }
 
 func TestUniversalAuth_NoCredentials(t *testing.T) {
-	validator := func(c *gin.Context, key string) (string, error) {
-		return "", nil
+	validator := func(c *gin.Context, key string) (string, string, error) {
+		return "", "", nil
 	}
 	r := gin.New()
 	r.Use(UniversalAuth(validator))
@@ -310,11 +312,11 @@ func TestUniversalAuth_NoCredentials(t *testing.T) {
 }
 
 func TestUniversalAuth_BothInvalid(t *testing.T) {
-	validator := func(c *gin.Context, key string) (string, error) {
+	validator := func(c *gin.Context, key string) (string, string, error) {
 		if key == "bad" {
-			return "", nil
+			return "", "", nil
 		}
-		return "", nil
+		return "", "", nil
 	}
 	r := gin.New()
 	r.Use(UniversalAuth(validator))
@@ -329,11 +331,11 @@ func TestUniversalAuth_BothInvalid(t *testing.T) {
 
 func TestUniversalAuth_InvalidJWT_RejectedEvenWithValidAPIKey(t *testing.T) {
 	setJWTSecret(t, "secret")
-	validator := func(c *gin.Context, key string) (string, error) {
+	validator := func(c *gin.Context, key string) (string, string, error) {
 		if key == "good-key" {
-			return "acc-apikey", nil
+			return "acc-apikey", "user", nil
 		}
-		return "", nil
+		return "", "", nil
 	}
 	r := gin.New()
 	r.Use(UniversalAuth(validator))
@@ -347,7 +349,6 @@ func TestUniversalAuth_InvalidJWT_RejectedEvenWithValidAPIKey(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// New behavior: invalid JWT causes immediate rejection, ignoring the valid API key.
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	var errResp map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &errResp)

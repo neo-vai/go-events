@@ -28,6 +28,8 @@ func TestAccountRepository_Create(t *testing.T) {
 		Email:        "test@example.com",
 		Login:        "testuser",
 		PasswordHash: "hashed",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	err := repo.Create(ctx, acc)
@@ -39,6 +41,8 @@ func TestAccountRepository_Create(t *testing.T) {
 	assert.Equal(t, acc.Email, saved.Email)
 	assert.Equal(t, acc.Login, saved.Login)
 	assert.Equal(t, acc.PasswordHash, saved.PasswordHash)
+	assert.Equal(t, acc.Role, saved.Role)
+	assert.Equal(t, acc.Active, saved.Active)
 }
 
 func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
@@ -53,6 +57,8 @@ func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
 		Email:        email,
 		Login:        "login1",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	require.NoError(t, repo.Create(ctx, acc1))
 
@@ -62,6 +68,8 @@ func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
 		Email:        email,
 		Login:        "login2",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	err := repo.Create(ctx, acc2)
 	require.Error(t, err)
@@ -82,6 +90,8 @@ func TestAccountRepository_Create_DuplicateLogin(t *testing.T) {
 		Email:        "first@example.com",
 		Login:        login,
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	require.NoError(t, repo.Create(ctx, acc1))
 
@@ -91,6 +101,8 @@ func TestAccountRepository_Create_DuplicateLogin(t *testing.T) {
 		Email:        "second@example.com",
 		Login:        login,
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	err := repo.Create(ctx, acc2)
 	require.Error(t, err)
@@ -119,6 +131,8 @@ func TestAccountRepository_GetByLogin(t *testing.T) {
 		Email:        "login_test@example.com",
 		Login:        "findme",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	require.NoError(t, repo.Create(ctx, acc))
@@ -142,6 +156,8 @@ func TestAccountRepository_Update(t *testing.T) {
 		Email:        "old@example.com",
 		Login:        "oldlogin",
 		PasswordHash: "oldhash",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	require.NoError(t, repo.Create(ctx, acc))
@@ -166,6 +182,8 @@ func TestAccountRepository_Update_Conflict(t *testing.T) {
 		Email:        "first@example.com",
 		Login:        "login_first",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	acc2 := &account.Account{
 		ID:           uuid.New(),
@@ -173,11 +191,12 @@ func TestAccountRepository_Update_Conflict(t *testing.T) {
 		Email:        "second@example.com",
 		Login:        "login_second",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	require.NoError(t, repo.Create(ctx, acc1))
 	require.NoError(t, repo.Create(ctx, acc2))
 
-	// Попытка сменить email на уже существующий
 	acc2.Email = acc1.Email
 	err := repo.Update(ctx, acc2)
 	require.Error(t, err)
@@ -197,6 +216,8 @@ func TestAccountRepository_Delete(t *testing.T) {
 		Email:        "delete@example.com",
 		Login:        "delete",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	require.NoError(t, repo.Create(ctx, acc))
@@ -221,10 +242,11 @@ func TestAccountRepository_CascadeDelete(t *testing.T) {
 		Email:        "cascade@example.com",
 		Login:        "cascade",
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 	}
 	require.NoError(t, accountRepo.Create(ctx, acc))
 
-	// Создаём API ключ и событие
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: acc.ID,
@@ -242,15 +264,12 @@ func TestAccountRepository_CascadeDelete(t *testing.T) {
 	}
 	require.NoError(t, eventRepo.Create(ctx, event))
 
-	// Удаляем аккаунт
 	err := accountRepo.Delete(ctx, acc.ID)
 	require.NoError(t, err)
 
-	// Проверяем, что ключ удалён каскадно
 	_, err = apiKeyRepo.GetByID(ctx, key.ID)
 	assert.Error(t, err)
 
-	// Проверяем, что событие удалено каскадно
 	_, err = eventRepo.GetByID(ctx, event.ID)
 	assert.Error(t, err)
 }

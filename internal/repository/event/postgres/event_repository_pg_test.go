@@ -27,6 +27,8 @@ func createTestAccount(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 		Email:        uuid.New().String() + "@example.com",
 		Login:        uuid.New().String(),
 		PasswordHash: "hash",
+		Role:         "user",
+		Active:       true,
 		CreatedAt:    time.Now(),
 	}
 	err := repo.Create(ctx, acc)
@@ -178,7 +180,7 @@ func TestEventRepository_GetByAPIKeyID(t *testing.T) {
 
 	events, err = repo.GetByAPIKeyID(ctx, "")
 	require.NoError(t, err)
-	assert.Len(t, events, 1) // событие с пустым api_key_id
+	assert.Len(t, events, 1)
 }
 
 func TestEventRepository_NullAPIKeyID(t *testing.T) {

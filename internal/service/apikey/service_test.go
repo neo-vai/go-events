@@ -16,6 +16,11 @@ type MockAPIKeyRepository struct {
 	mock.Mock
 }
 
+func (m *MockAPIKeyRepository) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
+	args := m.Called(ctx, page, limit, sort, order, filters)
+	return args.Get(0).([]*apikey.APIKey), args.Get(1).(int64), args.Error(2)
+}
+
 func (m *MockAPIKeyRepository) Create(ctx context.Context, key *apikey.APIKey) error {
 	args := m.Called(ctx, key)
 	return args.Error(0)
@@ -213,14 +218,15 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 	apiKeyObj := &apikey.APIKey{AccountID: accountID, Key: keyStr, Active: true}
 
 	repo.On("GetByKey", ctx, keyStr).Return(apiKeyObj, nil).Once()
-	gotAccountID, err := svc.ValidateAPIKey(ctx, keyStr)
+	gotAccountID, gotRole, err := svc.ValidateAPIKey(ctx, keyStr)
 	assert.NoError(t, err)
 	assert.Equal(t, accountID.String(), gotAccountID)
+	assert.Equal(t, "", gotRole) // role is not fetched in this method
 
 	// inactive key
 	apiKeyObj.Active = false
 	repo.On("GetByKey", ctx, keyStr).Return(apiKeyObj, nil).Once()
-	_, err = svc.ValidateAPIKey(ctx, keyStr)
+	_, _, err = svc.ValidateAPIKey(ctx, keyStr)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "inactive")
 }
@@ -230,7 +236,7 @@ func TestAPIKeyService_ValidateAPIKey_NotFound(t *testing.T) {
 	svc := NewAPIKeyService(repo)
 	ctx := context.Background()
 	repo.On("GetByKey", ctx, "missing").Return(nil, errors.New("not found")).Once()
-	_, err := svc.ValidateAPIKey(ctx, "missing")
+	_, _, err := svc.ValidateAPIKey(ctx, "missing")
 	assert.Error(t, err)
 	repo.AssertExpectations(t)
 }

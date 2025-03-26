@@ -15,6 +15,11 @@ type MockEventRepository struct {
 	mock.Mock
 }
 
+func (m *MockEventRepository) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error) {
+	args := m.Called(ctx, page, limit, sort, order, filters)
+	return args.Get(0).([]*event.Event), args.Get(1).(int64), args.Error(2)
+}
+
 func (m *MockEventRepository) Create(ctx context.Context, ev *event.Event) error {
 	args := m.Called(ctx, ev)
 	return args.Error(0)

@@ -17,6 +17,11 @@ type MockAccountRepository struct {
 	mock.Mock
 }
 
+func (m *MockAccountRepository) List(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
+	args := m.Called(ctx, page, limit, sort, order, filters)
+	return args.Get(0).([]*account.Account), args.Get(1).(int64), args.Error(2)
+}
+
 func (m *MockAccountRepository) Create(ctx context.Context, acc *account.Account) error {
 	args := m.Called(ctx, acc)
 	return args.Error(0)
@@ -88,7 +93,7 @@ func TestAccountService_CreateAccount_HashingError(t *testing.T) {
 	password := "verylongpasswordthatexceedsbcryptlimit"
 
 	hasher.On("Hash", password).Return("", errors.New("bcrypt error"))
-	// Репозиторий не должен вызываться, поэтому не настраиваем ожидания.
+	// Repository should not be called
 
 	err := svc.CreateAccount(ctx, acc, password)
 	assert.Error(t, err)
@@ -105,7 +110,7 @@ func TestAccountService_VerifyPassword_Success(t *testing.T) {
 	ctx := context.Background()
 	login := "test"
 	password := "correct"
-	acc := &account.Account{Login: login, PasswordHash: "hashed"}
+	acc := &account.Account{Login: login, PasswordHash: "hashed", Active: true}
 
 	repo.On("GetByLogin", ctx, login).Return(acc, nil).Once()
 	hasher.On("Compare", "hashed", password).Return(nil).Once()
@@ -125,7 +130,7 @@ func TestAccountService_VerifyPassword_WrongPassword(t *testing.T) {
 	ctx := context.Background()
 	login := "test"
 	password := "wrong"
-	acc := &account.Account{Login: login, PasswordHash: "hashed"}
+	acc := &account.Account{Login: login, PasswordHash: "hashed", Active: true}
 
 	repo.On("GetByLogin", ctx, login).Return(acc, nil).Once()
 	hasher.On("Compare", "hashed", password).Return(errors.New("mismatch")).Once()
@@ -201,10 +206,16 @@ func TestAccountService_UpdateAccount(t *testing.T) {
 	svc := NewAccountService(repo, hasher)
 
 	ctx := context.Background()
-	acc := &account.Account{ID: uuid.New(), Name: "Updated"}
-	repo.On("Update", ctx, acc).Return(nil).Once()
+	id := uuid.New()
+	existing := &account.Account{ID: id, Name: "Old", Email: "old@ex.com", Login: "oldlogin", Role: "user", Active: true}
+	accToUpdate := &account.Account{ID: id, Name: "Updated"}
 
-	err := svc.UpdateAccount(ctx, acc)
+	repo.On("GetByID", ctx, id).Return(existing, nil).Once()
+	repo.On("Update", ctx, mock.MatchedBy(func(a *account.Account) bool {
+		return a.ID == id && a.Name == "Updated" && a.Role == existing.Role && a.Active == existing.Active
+	})).Return(nil).Once()
+
+	err := svc.UpdateAccount(ctx, accToUpdate)
 	assert.NoError(t, err)
 	repo.AssertExpectations(t)
 }
@@ -241,8 +252,10 @@ func TestAccountService_UpdateAccount_NotFound(t *testing.T) {
 	svc := NewAccountService(repo, hasher)
 
 	ctx := context.Background()
-	acc := &account.Account{ID: uuid.New(), Name: "Ghost"}
-	repo.On("Update", ctx, acc).Return(postgres.ErrNoRowsAffected).Once()
+	id := uuid.New()
+	acc := &account.Account{ID: id, Name: "Ghost"}
+
+	repo.On("GetByID", ctx, id).Return(nil, ErrAccountNotFound).Once()
 
 	err := svc.UpdateAccount(ctx, acc)
 	assert.ErrorIs(t, err, ErrAccountNotFound)

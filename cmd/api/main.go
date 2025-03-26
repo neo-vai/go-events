@@ -13,6 +13,7 @@ import (
 
 	"github.com/neo-vai/go-events/internal/handler"
 	accountHandler "github.com/neo-vai/go-events/internal/handler/account"
+	adminHandler "github.com/neo-vai/go-events/internal/handler/admin"
 	apikeyHandler "github.com/neo-vai/go-events/internal/handler/apikey"
 	authHandler "github.com/neo-vai/go-events/internal/handler/auth"
 	eventHandler "github.com/neo-vai/go-events/internal/handler/event"
@@ -61,7 +62,7 @@ func main() {
 	apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
 
-	passwordHasher := account_service.NewBcryptHasher(0) // 0 = bcrypt.DefaultCost
+	passwordHasher := account_service.NewBcryptHasher(0)
 	accountService := account_service.NewAccountService(accountRepo, passwordHasher)
 	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo)
 	eventService := event_service.NewEventService(eventRepo)
@@ -72,13 +73,19 @@ func main() {
 	eventH := eventHandler.NewHandler(eventService)
 	authH := authHandler.NewHandler(authService)
 
-	// Pass apiKeyService to router for API key validation
+	// For admin handlers, we need services with admin capabilities.
+	// We'll reuse the same services but they need to implement admin interfaces.
+	// We'll create a stats service (simple implementation).
+	statsSvc := &simpleStatsService{db: pool}
+	adminH := adminHandler.NewHandler(accountService, eventService, apiKeyService, statsSvc)
+
 	router := handler.NewRouter(handler.Handlers{
 		Account: accountH,
 		APIKey:  apiKeyH,
 		Event:   eventH,
 		Auth:    authH,
-	}, apiKeyService)
+		Admin:   adminH,
+	}, apiKeyService, accountService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -109,4 +116,38 @@ func main() {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 	log.Println("Server exited properly")
+}
+
+// simpleStatsService implements admin.StatsService
+type simpleStatsService struct {
+	db *pgxpool.Pool
+}
+
+func (s *simpleStatsService) GetStats(ctx context.Context) (*adminHandler.StatsResponse, error) {
+	var stats adminHandler.StatsResponse
+	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM accounts").Scan(&stats.TotalAccounts)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.QueryRow(ctx, "SELECT COUNT(*) FROM accounts WHERE active = true").Scan(&stats.ActiveAccounts)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.QueryRow(ctx, "SELECT COUNT(*) FROM events").Scan(&stats.TotalEvents)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.QueryRow(ctx, "SELECT COUNT(*) FROM events WHERE created_at >= CURRENT_DATE").Scan(&stats.EventsToday)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.QueryRow(ctx, "SELECT COUNT(*) FROM api_keys").Scan(&stats.TotalAPIKeys)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.QueryRow(ctx, "SELECT COUNT(*) FROM api_keys WHERE active = true").Scan(&stats.ActiveAPIKeys)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
 }

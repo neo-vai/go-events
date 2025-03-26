@@ -22,6 +22,7 @@ type EventRepository interface {
 	GetByAccountID(ctx context.Context, accountID string) ([]*event.Event, error)
 	GetByAccountAndUser(ctx context.Context, accountID, username string) ([]*event.Event, error)
 	GetByAPIKeyID(ctx context.Context, apiKeyID string) ([]*event.Event, error)
+	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
 }
 
 type EventService struct {
@@ -112,4 +113,25 @@ func (s *EventService) ListEvents(ctx context.Context, accountID, username, apiK
 	default:
 		return []*event.Event{}, nil
 	}
+}
+
+func (s *EventService) ListAllEvents(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	// Map frontend sort fields to DB columns
+	sortMap := map[string]string{
+		"createdAt": "created_at",
+		"username":  "username",
+		"name":      "name",
+	}
+	if dbSort, ok := sortMap[sort]; ok {
+		sort = dbSort
+	} else {
+		sort = "created_at"
+	}
+	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
 }

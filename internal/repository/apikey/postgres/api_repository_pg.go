@@ -5,6 +5,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,4 +104,77 @@ func (r *APIKeyRepositoryPG) GetByKey(ctx context.Context, key string) (*apikey.
 		return nil, err
 	}
 	return ak, nil
+}
+
+func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
+	offset := (page - 1) * limit
+
+	baseQuery := `
+		SELECT id, account_id, key, active, created_at
+		FROM api_keys
+		WHERE 1=1
+	`
+	countQuery := `SELECT COUNT(*) FROM api_keys WHERE 1=1`
+
+	args := []interface{}{}
+	argIdx := 1
+	var whereClauses []string
+
+	if q, ok := filters["q"].(string); ok && q != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("key ILIKE $%d", argIdx))
+		args = append(args, "%"+q+"%")
+		argIdx++
+	}
+	if accountID, ok := filters["account_id"].(string); ok && accountID != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
+		args = append(args, accountID)
+		argIdx++
+	}
+	if active, ok := filters["active"].(bool); ok {
+		whereClauses = append(whereClauses, fmt.Sprintf("active = $%d", argIdx))
+		args = append(args, active)
+		argIdx++
+	}
+
+	if len(whereClauses) > 0 {
+		baseQuery += " AND " + strings.Join(whereClauses, " AND ")
+		countQuery += " AND " + strings.Join(whereClauses, " AND ")
+	}
+
+	allowedSortFields := map[string]bool{"created_at": true, "key": true, "active": true}
+	if sort != "" && allowedSortFields[sort] {
+		orderDir := "ASC"
+		if strings.ToUpper(order) == "DESC" {
+			orderDir = "DESC"
+		}
+		baseQuery += fmt.Sprintf(" ORDER BY %s %s", sort, orderDir)
+	} else {
+		baseQuery += " ORDER BY created_at DESC"
+	}
+
+	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	var total int64
+	err := r.db.QueryRow(ctx, countQuery, args[:argIdx-1]...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.Query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var keys []*apikey.APIKey
+	for rows.Next() {
+		key := &apikey.APIKey{}
+		err := rows.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, total, nil
 }

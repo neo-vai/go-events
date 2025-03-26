@@ -19,6 +19,8 @@ var (
 	ErrAccountNotFound    = errors.New("account not found")
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidAccountID   = errors.New("invalid account ID")
+	ErrAccountInactive    = errors.New("account is inactive")
+	ErrInvalidRole        = errors.New("invalid role")
 )
 
 // PasswordHasher abstracts password hashing operations.
@@ -62,6 +64,7 @@ type AccountRepository interface {
 	GetByLogin(ctx context.Context, login string) (*account.Account, error)
 	Update(ctx context.Context, account *account.Account) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	List(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
 }
 
 // AccountService handles business logic for accounts.
@@ -87,6 +90,8 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 	}
 	acc.PasswordHash = hash
 	acc.CreatedAt = time.Now()
+	acc.Role = "user" // default role
+	acc.Active = true // new accounts are active
 
 	err = s.repo.Create(ctx, acc)
 	if err != nil {
@@ -105,10 +110,14 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 }
 
 // VerifyPassword checks if the provided password matches the stored hash.
+// Also checks if account is active.
 func (s *AccountService) VerifyPassword(ctx context.Context, login, password string) (bool, error) {
 	acc, err := s.repo.GetByLogin(ctx, login)
 	if err != nil {
 		return false, ErrAccountNotFound
+	}
+	if !acc.Active {
+		return false, ErrAccountInactive
 	}
 	if err := s.hasher.Compare(acc.PasswordHash, password); err != nil {
 		return false, ErrInvalidPassword
@@ -116,9 +125,17 @@ func (s *AccountService) VerifyPassword(ctx context.Context, login, password str
 	return true, nil
 }
 
-// UpdateAccount updates account details.
+// UpdateAccount updates account details (non-admin fields).
 func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account) error {
-	err := s.repo.Update(ctx, acc)
+	// Preserve role and active status when updating via user endpoint
+	existing, err := s.repo.GetByID(ctx, acc.ID)
+	if err != nil {
+		return ErrAccountNotFound
+	}
+	acc.Role = existing.Role
+	acc.Active = existing.Active
+
+	err = s.repo.Update(ctx, acc)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -168,6 +185,70 @@ func (s *AccountService) GetByLogin(ctx context.Context, login string) (*account
 	acc, err := s.repo.GetByLogin(ctx, login)
 	if err != nil {
 		return nil, ErrAccountNotFound
+	}
+	return acc, nil
+}
+
+// Admin methods
+
+// ListAccounts returns a paginated list of accounts with filters.
+func (s *AccountService) ListAccounts(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	return s.repo.List(ctx, page, limit, sort, order, filters)
+}
+
+// UpdateAccountAdmin updates any account fields (including role and active) by admin.
+func (s *AccountService) UpdateAccountAdmin(ctx context.Context, idStr string, updates map[string]interface{}) (*account.Account, error) {
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return nil, ErrInvalidAccountID
+	}
+	acc, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, ErrAccountNotFound
+	}
+
+	// Apply allowed updates
+	if name, ok := updates["name"].(string); ok {
+		acc.Name = name
+	}
+	if email, ok := updates["email"].(string); ok {
+		acc.Email = email
+	}
+	if login, ok := updates["login"].(string); ok {
+		acc.Login = login
+	}
+	if role, ok := updates["role"].(string); ok {
+		if role != "user" && role != "admin" {
+			return nil, ErrInvalidRole
+		}
+		acc.Role = role
+	}
+	if active, ok := updates["active"].(bool); ok {
+		acc.Active = active
+	}
+	// Note: password update would be a separate flow
+
+	err = s.repo.Update(ctx, acc)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if pgErr.ConstraintName == "accounts_email_key" {
+				return nil, ErrEmailAlreadyExists
+			}
+			if pgErr.ConstraintName == "accounts_login_key" {
+				return nil, ErrLoginAlreadyExists
+			}
+		}
+		if errors.Is(err, postgres.ErrNoRowsAffected) {
+			return nil, ErrAccountNotFound
+		}
+		return nil, err
 	}
 	return acc, nil
 }
