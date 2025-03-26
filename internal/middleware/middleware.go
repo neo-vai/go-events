@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +35,9 @@ func GenerateJWT(accountID string) (string, error) {
 	}
 	expiresHours := 24
 	if val := os.Getenv("JWT_EXPIRES_HOURS"); val != "" {
-		// simple conversion; you may use strconv.Atoi
+		if v, err := strconv.Atoi(val); err == nil {
+			expiresHours = v
+		}
 	}
 	claims := Claims{
 		AccountID: accountID,
@@ -87,7 +90,6 @@ func JWTAuth() gin.HandlerFunc {
 }
 
 // UniversalAuth tries JWT first, then API key.
-// UniversalAuth tries JWT first, then API key.
 func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. Try JWT from Authorization header
@@ -108,7 +110,7 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, e
 		apiKey := c.GetHeader("X-API-Key")
 		if apiKey != "" && apiKeyValidator != nil {
 			accountID, err := apiKeyValidator(c, apiKey)
-			if err == nil {
+			if err == nil && accountID != "" {
 				c.Set(string(AccountIDKey), accountID)
 				c.Next()
 				return
@@ -174,7 +176,7 @@ func RateLimiter(requests int, duration time.Duration) gin.HandlerFunc {
 		mu.RUnlock()
 		if !exists {
 			mu.Lock()
-			limiter = rate.NewLimiter(rate.Limit(requests)/rate.Limit(duration.Seconds()), requests)
+			limiter = rate.NewLimiter(rate.Limit(float64(requests))/rate.Limit(duration.Seconds()), requests)
 			limiters[ip] = limiter
 			mu.Unlock()
 		}

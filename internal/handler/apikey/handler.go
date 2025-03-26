@@ -85,7 +85,7 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := h.service.UpdateActive(c, keyID, req.Active); err != nil {
+	if err := h.service.UpdateActive(c, keyID, *req.Active); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

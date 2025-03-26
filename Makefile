@@ -123,13 +123,13 @@ test-db-migrate: test-db-up
 .PHONY: test
 test: test-db-migrate
 	@echo "Running tests..."
-	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test ./... -v
+	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test -p 1 ./... -v
 	@echo "Tests completed."
 
 .PHONY: test-only
 test-only:
 	@echo "Running tests (using existing test database)..."
-	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test ./... -v
+	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test -p 1 ./... -v
 
 .PHONY: shell
 shell:

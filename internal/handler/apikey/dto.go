@@ -13,7 +13,7 @@ type APIKeyResponse struct {
 }
 
 type UpdateAPIKeyActiveRequest struct {
-	Active bool `json:"active" binding:"required"`
+	Active *bool `json:"active" binding:"required"`
 }
 
 func ToAPIKeyResponse(key *apikey.APIKey) APIKeyResponse {

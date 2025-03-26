@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neo-vai/go-events/internal/model/account"
 	"github.com/neo-vai/go-events/internal/model/apikey"
@@ -60,6 +61,34 @@ func TestAPIKeyRepository_Create(t *testing.T) {
 	assert.True(t, saved.Active)
 }
 
+func TestAPIKeyRepository_Create_DuplicateKey(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAPIKeyRepositoryPG(pool)
+	ctx := context.Background()
+	accountID := createTestAccount(t, pool)
+
+	keyValue := "duplicate-key-value"
+	key1 := &apikey.APIKey{
+		ID:        uuid.New(),
+		AccountID: accountID,
+		Key:       keyValue,
+		Active:    true,
+	}
+	require.NoError(t, repo.Create(ctx, key1))
+
+	key2 := &apikey.APIKey{
+		ID:        uuid.New(),
+		AccountID: accountID,
+		Key:       keyValue,
+		Active:    true,
+	}
+	err := repo.Create(ctx, key2)
+	require.Error(t, err)
+	var pgErr *pgconn.PgError
+	assert.ErrorAs(t, err, &pgErr)
+	assert.Equal(t, "23505", pgErr.Code)
+}
+
 func TestAPIKeyRepository_GetByKey(t *testing.T) {
 	pool := testutil.SetupTestDB(t)
 	repo := NewAPIKeyRepositoryPG(pool)
@@ -108,6 +137,27 @@ func TestAPIKeyRepository_Update(t *testing.T) {
 	updated, err := repo.GetByID(ctx, key.ID)
 	require.NoError(t, err)
 	assert.False(t, updated.Active)
+}
+
+func TestAPIKeyRepository_Delete(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAPIKeyRepositoryPG(pool)
+	ctx := context.Background()
+	accountID := createTestAccount(t, pool)
+
+	key := &apikey.APIKey{
+		ID:        uuid.New(),
+		AccountID: accountID,
+		Key:       "to-delete",
+		Active:    true,
+	}
+	require.NoError(t, repo.Create(ctx, key))
+
+	err := repo.Delete(ctx, key.ID)
+	require.NoError(t, err)
+
+	_, err = repo.GetByID(ctx, key.ID)
+	assert.Error(t, err)
 }
 
 func TestAPIKeyRepository_GetByAccountID(t *testing.T) {

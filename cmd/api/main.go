@@ -51,7 +51,8 @@ func main() {
 	apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
 
-	accountService := account_service.NewAccountService(accountRepo)
+	passwordHasher := account_service.NewBcryptHasher(0) // 0 = bcrypt.DefaultCost
+	accountService := account_service.NewAccountService(accountRepo, passwordHasher)
 	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo)
 	eventService := event_service.NewEventService(eventRepo)
 	authService := accountService
