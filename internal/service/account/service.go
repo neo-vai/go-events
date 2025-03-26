@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo-vai/go-events/internal/model/account"
+	"github.com/neo-vai/go-events/internal/repository/account/postgres"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -128,6 +129,9 @@ func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account
 				return ErrLoginAlreadyExists
 			}
 		}
+		if errors.Is(err, postgres.ErrNoRowsAffected) {
+			return ErrAccountNotFound
+		}
 		return err
 	}
 	return nil
@@ -139,7 +143,11 @@ func (s *AccountService) DeleteAccount(ctx context.Context, idStr string) error 
 	if err != nil {
 		return ErrInvalidAccountID
 	}
-	return s.repo.Delete(ctx, id)
+	err = s.repo.Delete(ctx, id)
+	if errors.Is(err, postgres.ErrNoRowsAffected) {
+		return ErrAccountNotFound
+	}
+	return err
 }
 
 // GetByID retrieves an account by its string ID.

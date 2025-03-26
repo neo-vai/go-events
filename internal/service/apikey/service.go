@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo-vai/go-events/internal/model/apikey"
+	"github.com/neo-vai/go-events/internal/repository/apikey/postgres"
 )
 
 // Domain errors
@@ -89,7 +90,11 @@ func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active b
 		return ErrKeyNotFound
 	}
 	key.Active = active
-	return s.repo.Update(ctx, key)
+	err = s.repo.Update(ctx, key)
+	if errors.Is(err, postgres.ErrNoRowsAffected) {
+		return ErrKeyNotFound
+	}
+	return err
 }
 
 // Delete удаляет ключ
@@ -99,10 +104,10 @@ func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 		return ErrInvalidKeyID
 	}
 	err = s.repo.Delete(ctx, id)
-	if err != nil {
-		return ErrKeyNotFound // если запись не найдена, или другая ошибка
+	if errors.Is(err, postgres.ErrNoRowsAffected) {
+		return ErrKeyNotFound
 	}
-	return nil
+	return err
 }
 
 // ListByAccount возвращает все ключи аккаунта

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/apikey"
+	"github.com/neo-vai/go-events/internal/repository/apikey/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -131,9 +132,33 @@ func TestAPIKeyService_UpdateActive_KeyNotFound(t *testing.T) {
 	svc := NewAPIKeyService(repo)
 	ctx := context.Background()
 	id := uuid.New()
-	repo.On("GetByID", ctx, id).Return(nil, errors.New("not found")).Once()
+	repo.On("GetByID", ctx, id).Return(nil, ErrKeyNotFound).Once()
 	err := svc.UpdateActive(ctx, id.String(), true)
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	repo.AssertExpectations(t)
+}
+
+func TestAPIKeyService_Delete_NotFound(t *testing.T) {
+	repo := new(MockAPIKeyRepository)
+	svc := NewAPIKeyService(repo)
+	ctx := context.Background()
+	id := uuid.New()
+	repo.On("Delete", ctx, id).Return(ErrKeyNotFound).Once()
+	err := svc.Delete(ctx, id.String())
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+	repo.AssertExpectations(t)
+}
+
+func TestAPIKeyService_UpdateActive_RepoNoRows(t *testing.T) {
+	repo := new(MockAPIKeyRepository)
+	svc := NewAPIKeyService(repo)
+	ctx := context.Background()
+	id := uuid.New()
+	key := &apikey.APIKey{ID: id, Active: true}
+	repo.On("GetByID", ctx, id).Return(key, nil).Once()
+	repo.On("Update", ctx, key).Return(postgres.ErrNoRowsAffected).Once()
+	err := svc.UpdateActive(ctx, id.String(), false)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 	repo.AssertExpectations(t)
 }
 

@@ -180,3 +180,28 @@ func TestAPIKeyRepository_GetByAccountID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, keys)
 }
+
+func TestAPIKeyRepository_Delete_NotFound(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAPIKeyRepositoryPG(pool)
+	ctx := context.Background()
+
+	err := repo.Delete(ctx, uuid.New())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoRowsAffected)
+}
+
+func TestAPIKeyRepository_Update_NotFound(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAPIKeyRepositoryPG(pool)
+	ctx := context.Background()
+
+	key := &apikey.APIKey{
+		ID:     uuid.New(),
+		Key:    "nonexistent",
+		Active: false,
+	}
+	err := repo.Update(ctx, key)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoRowsAffected)
+}

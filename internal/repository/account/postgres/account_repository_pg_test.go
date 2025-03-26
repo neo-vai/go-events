@@ -254,3 +254,29 @@ func TestAccountRepository_CascadeDelete(t *testing.T) {
 	_, err = eventRepo.GetByID(ctx, event.ID)
 	assert.Error(t, err)
 }
+
+func TestAccountRepository_Delete_NotFound(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAccountRepositoryPG(pool)
+	ctx := context.Background()
+
+	err := repo.Delete(ctx, uuid.New())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoRowsAffected)
+}
+
+func TestAccountRepository_Update_NotFound(t *testing.T) {
+	pool := testutil.SetupTestDB(t)
+	repo := NewAccountRepositoryPG(pool)
+	ctx := context.Background()
+
+	acc := &account.Account{
+		ID:    uuid.New(),
+		Name:  "Ghost",
+		Email: "ghost@example.com",
+		Login: "ghost",
+	}
+	err := repo.Update(ctx, acc)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoRowsAffected)
+}

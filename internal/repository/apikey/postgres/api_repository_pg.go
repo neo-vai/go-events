@@ -1,13 +1,19 @@
+// file: internal/repository/apikey/postgres/api_repository_pg.go
+
 package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/neo-vai/go-events/internal/model/apikey"
 )
+
+// ErrNoRowsAffected indicates that a DELETE/UPDATE affected zero rows.
+var ErrNoRowsAffected = errors.New("no rows affected")
 
 type APIKeyRepositoryPG struct {
 	db *pgxpool.Pool
@@ -61,15 +67,27 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID uuid.
 }
 
 func (r *APIKeyRepositoryPG) Update(ctx context.Context, apiKey *apikey.APIKey) error {
-	_, err := r.db.Exec(ctx, `
+	tag, err := r.db.Exec(ctx, `
         UPDATE api_keys SET key=$1, active=$2 WHERE id=$3
     `, apiKey.Key, apiKey.Active, apiKey.ID)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoRowsAffected
+	}
+	return nil
 }
 
 func (r *APIKeyRepositoryPG) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM api_keys WHERE id=$1`, id)
-	return err
+	tag, err := r.db.Exec(ctx, `DELETE FROM api_keys WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNoRowsAffected
+	}
+	return nil
 }
 
 func (r *APIKeyRepositoryPG) GetByKey(ctx context.Context, key string) (*apikey.APIKey, error) {

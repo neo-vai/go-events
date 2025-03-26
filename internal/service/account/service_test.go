@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/account"
+	"github.com/neo-vai/go-events/internal/repository/account/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -232,4 +233,32 @@ func TestAccountService_DeleteAccount_InvalidID(t *testing.T) {
 	err := svc.DeleteAccount(ctx, "invalid")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid account ID")
+}
+
+func TestAccountService_UpdateAccount_NotFound(t *testing.T) {
+	repo := new(MockAccountRepository)
+	hasher := new(MockPasswordHasher)
+	svc := NewAccountService(repo, hasher)
+
+	ctx := context.Background()
+	acc := &account.Account{ID: uuid.New(), Name: "Ghost"}
+	repo.On("Update", ctx, acc).Return(postgres.ErrNoRowsAffected).Once()
+
+	err := svc.UpdateAccount(ctx, acc)
+	assert.ErrorIs(t, err, ErrAccountNotFound)
+	repo.AssertExpectations(t)
+}
+
+func TestAccountService_DeleteAccount_NotFound(t *testing.T) {
+	repo := new(MockAccountRepository)
+	hasher := new(MockPasswordHasher)
+	svc := NewAccountService(repo, hasher)
+
+	ctx := context.Background()
+	id := uuid.New()
+	repo.On("Delete", ctx, id).Return(postgres.ErrNoRowsAffected).Once()
+
+	err := svc.DeleteAccount(ctx, id.String())
+	assert.ErrorIs(t, err, ErrAccountNotFound)
+	repo.AssertExpectations(t)
 }
