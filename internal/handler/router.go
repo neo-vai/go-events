@@ -50,15 +50,21 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService) *gin.Engine 
 		protected := api.Group("/")
 		protected.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc)))
 		{
-			protected.GET("/accounts/:id", h.Account.GetAccount)
-			protected.PUT("/accounts/:id", h.Account.UpdateAccount)
-			protected.DELETE("/accounts/:id", h.Account.DeleteAccount)
+			// Account endpoints – require ownership
+			accountGroup := protected.Group("/accounts/:id")
+			accountGroup.Use(middleware.OwnerCheck())
+			{
+				accountGroup.GET("", h.Account.GetAccount)
+				accountGroup.PUT("", h.Account.UpdateAccount)
+				accountGroup.DELETE("", h.Account.DeleteAccount)
 
-			protected.POST("/accounts/:id/keys", h.APIKey.GenerateAPIKey)
-			protected.GET("/accounts/:id/keys", h.APIKey.ListAPIKeys)
-			protected.PATCH("/accounts/:id/keys/:key_id", h.APIKey.UpdateAPIKeyActive)
-			protected.DELETE("/accounts/:id/keys/:key_id", h.APIKey.DeleteAPIKey)
+				accountGroup.POST("/keys", h.APIKey.GenerateAPIKey)
+				accountGroup.GET("/keys", h.APIKey.ListAPIKeys)
+				accountGroup.PATCH("/keys/:key_id", h.APIKey.UpdateAPIKeyActive)
+				accountGroup.DELETE("/keys/:key_id", h.APIKey.DeleteAPIKey)
+			}
 
+			// Event endpoints – automatically scoped to authenticated account
 			protected.POST("/events", h.Event.CreateEvent)
 			protected.GET("/events", h.Event.ListEvents)
 			protected.GET("/events/:id", h.Event.GetEvent)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/event"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
 )
@@ -37,13 +38,20 @@ func NewHandler(service EventService) *Handler {
 // @Security     ApiKeyAuth
 // @Router       /events [post]
 func (h *Handler) CreateEvent(c *gin.Context) {
+	authenticatedAccountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	var req CreateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	ev := &event.Event{
-		AccountID: req.AccountID,
+		AccountID: authenticatedAccountID.(string),
 		Username:  req.Username,
 		APIKeyID:  req.APIKeyID,
 		Name:      req.Name,
@@ -60,7 +68,6 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Summary      List events with filters
 // @Tags         event
 // @Produce      json
-// @Param        account_id query string false "Filter by account ID"
 // @Param        user query string false "Filter by username"
 // @Param        api_key_id query string false "Filter by API key ID"
 // @Success      200 {array} EventResponse
@@ -69,7 +76,14 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Security     ApiKeyAuth
 // @Router       /events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
-	accountID := c.Query("account_id")
+	authenticatedAccountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	// Always restrict to the authenticated account; ignore any user-supplied account_id.
+	accountID := authenticatedAccountID.(string)
 	username := c.Query("user")
 	apiKeyID := c.Query("api_key_id")
 
@@ -97,6 +111,13 @@ func (h *Handler) ListEvents(c *gin.Context) {
 // @Security     ApiKeyAuth
 // @Router       /events/{id} [get]
 func (h *Handler) GetEvent(c *gin.Context) {
+	// Check authentication first
+	authenticatedAccountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	id := c.Param("id")
 	ev, err := h.service.GetByID(c, id)
 	if err != nil {
@@ -107,5 +128,12 @@ func (h *Handler) GetEvent(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Additional check: event must belong to the authenticated account
+	if ev.AccountID != authenticatedAccountID.(string) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		return
+	}
+
 	c.JSON(http.StatusOK, ToEventResponse(ev))
 }

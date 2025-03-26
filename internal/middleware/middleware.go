@@ -89,10 +89,11 @@ func JWTAuth() gin.HandlerFunc {
 	}
 }
 
-// UniversalAuth tries JWT first, then API key.
+// UniversalAuth tries JWT first if Authorization header is present, otherwise falls back to API key.
+// It does NOT fall back from an invalid JWT to a valid API key; if a JWT is provided,
+// it must be valid for the request to proceed.
 func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. Try JWT from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
 			parts := strings.SplitN(authHeader, " ", 2)
@@ -103,10 +104,12 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, e
 					c.Next()
 					return
 				}
+				// JWT was provided but invalid – reject immediately
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+				return
 			}
 		}
 
-		// 2. Try API key from X-API-Key header
 		apiKey := c.GetHeader("X-API-Key")
 		if apiKey != "" && apiKeyValidator != nil {
 			accountID, err := apiKeyValidator(c, apiKey)
@@ -117,7 +120,6 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (string, e
 			}
 		}
 
-		// 3. No valid credentials
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	}
 }

@@ -3,11 +3,10 @@ package event
 import "github.com/neo-vai/go-events/internal/model/event"
 
 type CreateEventRequest struct {
-	AccountID string `json:"accountID" binding:"required"`
-	Username  string `json:"user" binding:"required"`
-	APIKeyID  string `json:"apiKeyID"`
-	Name      string `json:"name" binding:"required"`
-	Payload   string `json:"payload"`
+	Username string `json:"user" binding:"required"`
+	APIKeyID string `json:"apiKeyID"`
+	Name     string `json:"name" binding:"required"`
+	Payload  string `json:"payload"`
 }
 
 type EventResponse struct {

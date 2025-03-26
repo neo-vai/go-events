@@ -309,7 +309,25 @@ func TestUniversalAuth_NoCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestUniversalAuth_InvalidJWT_FallsBackToAPIKey(t *testing.T) {
+func TestUniversalAuth_BothInvalid(t *testing.T) {
+	validator := func(c *gin.Context, key string) (string, error) {
+		if key == "bad" {
+			return "", nil
+		}
+		return "", nil
+	}
+	r := gin.New()
+	r.Use(UniversalAuth(validator))
+	r.GET("/", func(c *gin.Context) {})
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer bad")
+	req.Header.Set("X-API-Key", "bad")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestUniversalAuth_InvalidJWT_RejectedEvenWithValidAPIKey(t *testing.T) {
 	setJWTSecret(t, "secret")
 	validator := func(c *gin.Context, key string) (string, error) {
 		if key == "good-key" {
@@ -328,26 +346,13 @@ func TestUniversalAuth_InvalidJWT_FallsBackToAPIKey(t *testing.T) {
 	req.Header.Set("X-API-Key", "good-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "acc-apikey", w.Body.String())
-}
 
-func TestUniversalAuth_BothInvalid(t *testing.T) {
-	validator := func(c *gin.Context, key string) (string, error) {
-		if key == "bad" {
-			return "", nil
-		}
-		return "", nil
-	}
-	r := gin.New()
-	r.Use(UniversalAuth(validator))
-	r.GET("/", func(c *gin.Context) {})
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer bad")
-	req.Header.Set("X-API-Key", "bad")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	// New behavior: invalid JWT causes immediate rejection, ignoring the valid API key.
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	var errResp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.NoError(t, err)
+	assert.Equal(t, "invalid or expired token", errResp["error"])
 }
 
 // ---------- OwnerCheck ----------
