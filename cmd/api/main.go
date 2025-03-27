@@ -1,3 +1,5 @@
+// file: cmd/api/main.go
+
 package main
 
 import (
@@ -6,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -73,9 +76,6 @@ func main() {
 	eventH := eventHandler.NewHandler(eventService)
 	authH := authHandler.NewHandler(authService)
 
-	// For admin handlers, we need services with admin capabilities.
-	// We'll reuse the same services but they need to implement admin interfaces.
-	// We'll create a stats service (simple implementation).
 	statsSvc := &simpleStatsService{db: pool}
 	adminH := adminHandler.NewHandler(accountService, eventService, apiKeyService, statsSvc)
 
@@ -86,6 +86,15 @@ func main() {
 		Auth:    authH,
 		Admin:   adminH,
 	}, apiKeyService, accountService)
+
+	// Configure trusted proxies so Gin correctly reads X-Forwarded-* headers
+	trustedProxies := os.Getenv("TRUSTED_PROXIES")
+	if trustedProxies == "" {
+		trustedProxies = "127.0.0.1,::1" // default for local development
+	}
+	if err := router.SetTrustedProxies(strings.Split(trustedProxies, ",")); err != nil {
+		log.Printf("Warning: failed to set trusted proxies: %v", err)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
