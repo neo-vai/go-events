@@ -31,7 +31,7 @@ func NewHandler(accountSvc AccountService, jwtSecret string, jwtExpiresHours int
 }
 
 type LoginRequest struct {
-	Login    string `json:"login" binding:"required"`
+	Login    string `json:"login" binding:"required,alphanumdash"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -54,7 +54,8 @@ type LoginResponse struct {
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
+		c.Abort()
 		return
 	}
 	valid, err := h.accountSvc.VerifyPassword(c, req.Login, req.Password)

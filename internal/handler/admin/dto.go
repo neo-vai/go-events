@@ -32,10 +32,10 @@ func ToAccountResponse(acc *account.Account) AccountResponse {
 }
 
 type CreateAccountRequest struct {
-	Name     string `json:"name" binding:"required"`
+	Name     string `json:"name" binding:"required,alphanumdash"`
 	Email    string `json:"email" binding:"required,email"`
-	Login    string `json:"login" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Login    string `json:"login" binding:"required,alphanumdash"`
+	Password string `json:"password" binding:"required,strongpassword"`
 	Role     string `json:"role" binding:"required,oneof=user admin"`
 }
 

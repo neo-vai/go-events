@@ -41,7 +41,8 @@ func NewHandler(service AccountService) *Handler {
 func (h *Handler) CreateAccount(c *gin.Context) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
+		c.Abort()
 		return
 	}
 
@@ -118,7 +119,8 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 	id := c.Param("id")
 	var req UpdateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
+		c.Abort()
 		return
 	}
 

@@ -138,7 +138,8 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 
 	var req UpdateAPIKeyActiveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
+		c.Abort()
 		return
 	}
 	if err := h.service.UpdateActive(c, keyID, *req.Active); err != nil {

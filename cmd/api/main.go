@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/neo-vai/go-events/internal/validator"
 
 	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler"
@@ -90,6 +91,8 @@ func main() {
 	}
 	defer pool.Close()
 
+	validator.RegisterCustomValidators()
+
 	accountRepo := account_repository_pg.NewAccountRepositoryPG(pool)
 	apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
@@ -97,7 +100,7 @@ func main() {
 	passwordHasher := account_service.NewBcryptHasher(cfg.BcryptCost)
 	accountService := account_service.NewAccountService(accountRepo, passwordHasher)
 	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo, cfg.APIKeyLength)
-	eventService := event_service.NewEventService(eventRepo)
+	eventService := event_service.NewEventService(eventRepo, apiKeyRepo)
 
 	accountH := accountHandler.NewHandler(accountService)
 	apiKeyH := apikeyHandler.NewHandler(apiKeyService)

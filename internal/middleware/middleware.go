@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
@@ -245,5 +246,53 @@ func RequireAdmin() gin.HandlerFunc {
 			return
 		}
 		c.Next()
+	}
+}
+
+// ValidationErrorHandler intercepts validation errors and returns a structured response.
+func ValidationErrorHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		if len(c.Errors) == 0 {
+			return
+		}
+
+		var validationErrors []gin.H
+		for _, e := range c.Errors {
+			if ve, ok := e.Err.(validator.ValidationErrors); ok {
+				for _, fe := range ve {
+					validationErrors = append(validationErrors, gin.H{
+						"field":   fe.Field(),
+						"message": formatValidationError(fe),
+					})
+				}
+			} else {
+				// For non-validation errors, keep original behavior
+				return
+			}
+		}
+
+		if len(validationErrors) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"errors": validationErrors})
+			c.Abort()
+		}
+	}
+}
+
+func formatValidationError(fe validator.FieldError) string {
+	switch fe.Tag() {
+	case "required":
+		return "This field is required"
+	case "email":
+		return "Invalid email format"
+	case "json":
+		return "Invalid JSON format"
+	case "strongpassword":
+		return "Password must be at least 8 characters and contain both letters and digits"
+	case "alphanumdash":
+		return "Only letters, numbers, hyphens and underscores are allowed"
+	default:
+		return fe.Error()
 	}
 }

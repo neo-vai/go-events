@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neo-vai/go-events/internal/middleware"
@@ -14,7 +15,9 @@ import (
 type EventService interface {
 	CreateEvent(ctx context.Context, ev *event.Event) error
 	GetByID(ctx context.Context, id string) (*event.Event, error)
+	// ListEvents is kept for backward compatibility; prefer ListEventsPaginated.
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
+	ListEventsPaginated(ctx context.Context, accountID string, page, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error)
 }
 
 type Handler struct {
@@ -46,7 +49,8 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 
 	var req CreateEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
+		c.Abort()
 		return
 	}
 
@@ -65,12 +69,18 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 }
 
 // ListEvents godoc
-// @Summary      List events with filters
+// @Summary      List events with optional filters and pagination
 // @Tags         event
 // @Produce      json
-// @Param        user query string false "Filter by username"
-// @Param        api_key_id query string false "Filter by API key ID"
+// @Param        page        query int    false "Page number (starts from 1)"
+// @Param        limit       query int    false "Items per page (max 1000)"
+// @Param        sort        query string false "Sort field (createdAt, username, name)"
+// @Param        order       query string false "Sort order (ASC, DESC)"
+// @Param        user        query string false "Filter by username"
+// @Param        api_key_id  query string false "Filter by API key ID"
+// @Param        q           query string false "Search query (username, name, payload)"
 // @Success      200 {array} EventResponse
+// @Header       200 {integer} X-Total-Count "Total number of items (only when paginated)"
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
@@ -81,20 +91,45 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-
-	// Always restrict to the authenticated account; ignore any user-supplied account_id.
 	accountID := authenticatedAccountID.(string)
+
+	// Parse pagination parameters.
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
+
+	// Parse sorting.
+	sort := c.DefaultQuery("sort", "createdAt")
+	order := c.DefaultQuery("order", "DESC")
+
+	// Parse filters.
 	username := c.Query("user")
 	apiKeyID := c.Query("api_key_id")
+	searchQuery := c.Query("q")
 
-	events, err := h.service.ListEvents(c, accountID, username, apiKeyID)
+	events, total, err := h.service.ListEventsPaginated(
+		c.Request.Context(),
+		accountID,
+		page,
+		limit,
+		sort,
+		order,
+		username,
+		apiKeyID,
+		searchQuery,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	resp := make([]EventResponse, len(events))
 	for i, ev := range events {
 		resp[i] = ToEventResponse(ev)
+	}
+
+	// Set X-Total-Count header only when pagination is enabled.
+	if limit > 0 {
+		c.Header("X-Total-Count", strconv.FormatInt(total, 10))
 	}
 	c.JSON(http.StatusOK, resp)
 }
