@@ -16,3 +16,4 @@ ALTER TABLE api_keys DROP COLUMN key;
 ALTER TABLE api_keys ADD CONSTRAINT api_keys_key_hash_key UNIQUE (key_hash);
 
 -- Update indexes: we no longer need an index on 'key', but the unique constraint creates one automatically.
+CREATE INDEX idx_events_api_key_id ON events(api_key_id);

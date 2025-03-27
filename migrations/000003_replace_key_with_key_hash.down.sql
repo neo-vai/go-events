@@ -10,3 +10,5 @@ ALTER TABLE api_keys DROP CONSTRAINT api_keys_key_hash_key;
 
 -- Drop the key_hash column
 ALTER TABLE api_keys DROP COLUMN key_hash;
+
+DROP INDEX IF EXISTS idx_events_api_key_id;
