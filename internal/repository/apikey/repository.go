@@ -11,7 +11,7 @@ type APIKeyRepository interface {
 	Create(ctx context.Context, apiKey *apikey.APIKey) error
 	GetByID(ctx context.Context, id uuid.UUID) (*apikey.APIKey, error)
 	GetByAccountID(ctx context.Context, accountID uuid.UUID) ([]*apikey.APIKey, error)
-	GetByKey(ctx context.Context, key string) (*apikey.APIKey, error)
+	GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error)
 	Update(ctx context.Context, apiKey *apikey.APIKey) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)

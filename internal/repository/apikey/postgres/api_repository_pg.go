@@ -1,5 +1,3 @@
-// file: internal/repository/apikey/postgres/api_repository_pg.go
-
 package postgres
 
 import (
@@ -27,20 +25,20 @@ func NewAPIKeyRepositoryPG(db *pgxpool.Pool) *APIKeyRepositoryPG {
 
 func (r *APIKeyRepositoryPG) Create(ctx context.Context, apiKey *apikey.APIKey) error {
 	_, err := r.db.Exec(ctx, `
-        INSERT INTO api_keys (id, account_id, key, active, created_at)
-        VALUES ($1, $2, $3, $4, $5)
-    `, apiKey.ID, apiKey.AccountID, apiKey.Key, apiKey.Active, time.Now())
+		INSERT INTO api_keys (id, account_id, key_hash, active, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, apiKey.ID, apiKey.AccountID, apiKey.KeyHash, apiKey.Active, time.Now())
 	return err
 }
 
 func (r *APIKeyRepositoryPG) GetByID(ctx context.Context, id uuid.UUID) (*apikey.APIKey, error) {
 	row := r.db.QueryRow(ctx, `
-        SELECT id, account_id, key, active, created_at
-        FROM api_keys WHERE id=$1
-    `, id)
+		SELECT id, account_id, key_hash, active, created_at
+		FROM api_keys WHERE id=$1
+	`, id)
 
 	key := &apikey.APIKey{}
-	err := row.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt)
+	err := row.Scan(&key.ID, &key.AccountID, &key.KeyHash, &key.Active, &key.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +47,9 @@ func (r *APIKeyRepositoryPG) GetByID(ctx context.Context, id uuid.UUID) (*apikey
 
 func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID uuid.UUID) ([]*apikey.APIKey, error) {
 	rows, err := r.db.Query(ctx, `
-        SELECT id, account_id, key, active, created_at
-        FROM api_keys WHERE account_id=$1
-    `, accountID)
+		SELECT id, account_id, key_hash, active, created_at
+		FROM api_keys WHERE account_id=$1
+	`, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +58,7 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID uuid.
 	var keys []*apikey.APIKey
 	for rows.Next() {
 		key := &apikey.APIKey{}
-		if err := rows.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.AccountID, &key.KeyHash, &key.Active, &key.CreatedAt); err != nil {
 			return nil, err
 		}
 		keys = append(keys, key)
@@ -70,8 +68,8 @@ func (r *APIKeyRepositoryPG) GetByAccountID(ctx context.Context, accountID uuid.
 
 func (r *APIKeyRepositoryPG) Update(ctx context.Context, apiKey *apikey.APIKey) error {
 	tag, err := r.db.Exec(ctx, `
-        UPDATE api_keys SET key=$1, active=$2 WHERE id=$3
-    `, apiKey.Key, apiKey.Active, apiKey.ID)
+		UPDATE api_keys SET key_hash=$1, active=$2 WHERE id=$3
+	`, apiKey.KeyHash, apiKey.Active, apiKey.ID)
 	if err != nil {
 		return err
 	}
@@ -92,14 +90,14 @@ func (r *APIKeyRepositoryPG) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *APIKeyRepositoryPG) GetByKey(ctx context.Context, key string) (*apikey.APIKey, error) {
+func (r *APIKeyRepositoryPG) GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error) {
 	row := r.db.QueryRow(ctx, `
-        SELECT id, account_id, key, active, created_at
-        FROM api_keys WHERE key=$1
-    `, key)
+		SELECT id, account_id, key_hash, active, created_at
+		FROM api_keys WHERE key_hash=$1
+	`, keyHash)
 
 	ak := &apikey.APIKey{}
-	err := row.Scan(&ak.ID, &ak.AccountID, &ak.Key, &ak.Active, &ak.CreatedAt)
+	err := row.Scan(&ak.ID, &ak.AccountID, &ak.KeyHash, &ak.Active, &ak.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +108,7 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 	offset := (page - 1) * limit
 
 	baseQuery := `
-		SELECT id, account_id, key, active, created_at
+		SELECT id, account_id, key_hash, active, created_at
 		FROM api_keys
 		WHERE 1=1
 	`
@@ -120,10 +118,14 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 	argIdx := 1
 	var whereClauses []string
 
+	// Note: search by q now uses key_hash prefix? We cannot search by plain key anymore.
+	// For admin, we might want to search by account name instead. We'll keep q as is (search in key_hash? not useful).
+	// We'll skip searching by key for now.
 	if q, ok := filters["q"].(string); ok && q != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("key ILIKE $%d", argIdx))
-		args = append(args, "%"+q+"%")
-		argIdx++
+		// Could search by key_hash prefix, but that's rarely needed. Omit.
+		// Alternatively, we could join with accounts and search by account name/email.
+		// For simplicity, we ignore q for API keys.
+		_ = q
 	}
 	if accountID, ok := filters["account_id"].(string); ok && accountID != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
@@ -141,7 +143,7 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 		countQuery += " AND " + strings.Join(whereClauses, " AND ")
 	}
 
-	allowedSortFields := map[string]bool{"created_at": true, "key": true, "active": true}
+	allowedSortFields := map[string]bool{"created_at": true, "active": true}
 	if sort != "" && allowedSortFields[sort] {
 		orderDir := "ASC"
 		if strings.ToUpper(order) == "DESC" {
@@ -170,7 +172,7 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 	var keys []*apikey.APIKey
 	for rows.Next() {
 		key := &apikey.APIKey{}
-		err := rows.Scan(&key.ID, &key.AccountID, &key.Key, &key.Active, &key.CreatedAt)
+		err := rows.Scan(&key.ID, &key.AccountID, &key.KeyHash, &key.Active, &key.CreatedAt)
 		if err != nil {
 			return nil, 0, err
 		}

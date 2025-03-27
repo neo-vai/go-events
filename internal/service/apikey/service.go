@@ -2,6 +2,10 @@ package apikey
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -25,7 +29,7 @@ type APIKeyRepository interface {
 	Create(ctx context.Context, key *apikey.APIKey) error
 	GetByID(ctx context.Context, id uuid.UUID) (*apikey.APIKey, error)
 	GetByAccountID(ctx context.Context, accountID uuid.UUID) ([]*apikey.APIKey, error)
-	GetByKey(ctx context.Context, key string) (*apikey.APIKey, error)
+	GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error)
 	Update(ctx context.Context, key *apikey.APIKey) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
@@ -39,19 +43,40 @@ func NewAPIKeyService(repo APIKeyRepository) *APIKeyService {
 	return &APIKeyService{repo: repo}
 }
 
+// generateSecureKey creates a cryptographically random key (32 bytes) and returns both the plain key and its SHA-256 hash.
+func generateSecureKey() (plainKey, hash string, err error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", "", err
+	}
+	plainKey = base64.URLEncoding.EncodeToString(bytes)
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hash = hex.EncodeToString(hasher.Sum(nil))
+	return plainKey, hash, nil
+}
+
 // Generate creates a new API key for the given accountID.
 func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*apikey.APIKey, error) {
 	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
 		return nil, ErrInvalidAccountID
 	}
+
+	plainKey, hash, err := generateSecureKey()
+	if err != nil {
+		return nil, err
+	}
+
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       uuid.New().String(),
+		KeyHash:   hash,
+		PlainKey:  plainKey, // will be returned to the caller
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
+
 	err = s.repo.Create(ctx, key)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -123,21 +148,20 @@ func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) 
 	return keys, nil
 }
 
-// ValidateAPIKey validates the API key and returns the associated account ID and role.
-func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (accountID string, role string, err error) {
-	apiKey, err := s.repo.GetByKey(ctx, key)
+// ValidateAPIKey validates the plain API key and returns the associated account ID.
+// It computes the hash of the provided key and looks it up.
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (accountID string, role string, err error) {
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	apiKey, err := s.repo.GetByKeyHash(ctx, hash)
 	if err != nil {
 		return "", "", ErrKeyNotFound
 	}
 	if !apiKey.Active {
 		return "", "", ErrInactiveKey
 	}
-	// Note: API key validation does not fetch the role directly.
-	// We need to get the account role from the associated account.
-	// For simplicity, we'll do a separate query, but ideally we'd join.
-	// Since the repository doesn't have that, we'll implement a simple get in service.
-	// (We'll assume AccountRepository is available; but to avoid circular deps, we'll pass a function or extend APIKeyRepository.)
-	// As a pragmatic solution, we'll fetch the account in the middleware adapter.
 	return apiKey.AccountID.String(), "", nil
 }
 
@@ -150,7 +174,6 @@ func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, page, limit int, sor
 	}
 	sortMap := map[string]string{
 		"createdAt": "created_at",
-		"key":       "key",
 		"active":    "active",
 	}
 	if dbSort, ok := sortMap[sort]; ok {

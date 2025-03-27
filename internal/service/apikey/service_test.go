@@ -2,6 +2,8 @@ package apikey
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -36,8 +38,8 @@ func (m *MockAPIKeyRepository) GetByAccountID(ctx context.Context, accountID uui
 	args := m.Called(ctx, accountID)
 	return args.Get(0).([]*apikey.APIKey), args.Error(1)
 }
-func (m *MockAPIKeyRepository) GetByKey(ctx context.Context, key string) (*apikey.APIKey, error) {
-	args := m.Called(ctx, key)
+func (m *MockAPIKeyRepository) GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error) {
+	args := m.Called(ctx, keyHash)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -58,11 +60,22 @@ func TestAPIKeyService_Generate(t *testing.T) {
 	ctx := context.Background()
 	accountID := uuid.New().String()
 
-	repo.On("Create", ctx, mock.AnythingOfType("*apikey.APIKey")).Return(nil).Once()
+	// Mock the Create call and capture the key to verify hash
+	repo.On("Create", ctx, mock.AnythingOfType("*apikey.APIKey")).Return(nil).Run(func(args mock.Arguments) {
+		key := args.Get(1).(*apikey.APIKey)
+		assert.NotEmpty(t, key.KeyHash)
+		assert.NotEmpty(t, key.PlainKey)
+		// Verify that hash matches the plain key
+		hasher := sha256.New()
+		hasher.Write([]byte(key.PlainKey))
+		expectedHash := hex.EncodeToString(hasher.Sum(nil))
+		assert.Equal(t, expectedHash, key.KeyHash)
+	}).Once()
+
 	key, err := svc.Generate(ctx, accountID)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, key.ID)
-	assert.NotEmpty(t, key.Key)
+	assert.NotEmpty(t, key.PlainKey)
 	assert.True(t, key.Active)
 	assert.Equal(t, accountID, key.AccountID.String())
 	repo.AssertExpectations(t)
@@ -93,7 +106,7 @@ func TestAPIKeyService_GetByID(t *testing.T) {
 	svc := NewAPIKeyService(repo)
 	ctx := context.Background()
 	id := uuid.New()
-	expected := &apikey.APIKey{ID: id, Key: "key"}
+	expected := &apikey.APIKey{ID: id, KeyHash: "somehash"}
 	repo.On("GetByID", ctx, id).Return(expected, nil).Once()
 	key, err := svc.GetByID(ctx, id.String())
 	assert.NoError(t, err)
@@ -214,19 +227,23 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 	svc := NewAPIKeyService(repo)
 	ctx := context.Background()
 	accountID := uuid.New()
-	keyStr := "valid-key"
-	apiKeyObj := &apikey.APIKey{AccountID: accountID, Key: keyStr, Active: true}
+	plainKey := "my-valid-plain-key"
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	repo.On("GetByKey", ctx, keyStr).Return(apiKeyObj, nil).Once()
-	gotAccountID, gotRole, err := svc.ValidateAPIKey(ctx, keyStr)
+	apiKeyObj := &apikey.APIKey{AccountID: accountID, KeyHash: hash, Active: true}
+
+	repo.On("GetByKeyHash", ctx, hash).Return(apiKeyObj, nil).Once()
+	gotAccountID, gotRole, err := svc.ValidateAPIKey(ctx, plainKey)
 	assert.NoError(t, err)
 	assert.Equal(t, accountID.String(), gotAccountID)
 	assert.Equal(t, "", gotRole) // role is not fetched in this method
 
 	// inactive key
 	apiKeyObj.Active = false
-	repo.On("GetByKey", ctx, keyStr).Return(apiKeyObj, nil).Once()
-	_, _, err = svc.ValidateAPIKey(ctx, keyStr)
+	repo.On("GetByKeyHash", ctx, hash).Return(apiKeyObj, nil).Once()
+	_, _, err = svc.ValidateAPIKey(ctx, plainKey)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "inactive")
 }
@@ -235,8 +252,13 @@ func TestAPIKeyService_ValidateAPIKey_NotFound(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
 	svc := NewAPIKeyService(repo)
 	ctx := context.Background()
-	repo.On("GetByKey", ctx, "missing").Return(nil, errors.New("not found")).Once()
-	_, _, err := svc.ValidateAPIKey(ctx, "missing")
+	plainKey := "missing"
+	hasher := sha256.New()
+	hasher.Write([]byte(plainKey))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	repo.On("GetByKeyHash", ctx, hash).Return(nil, errors.New("not found")).Once()
+	_, _, err := svc.ValidateAPIKey(ctx, plainKey)
 	assert.Error(t, err)
 	repo.AssertExpectations(t)
 }

@@ -44,7 +44,7 @@ func TestAPIKeyRepository_Create(t *testing.T) {
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       uuid.New().String(),
+		KeyHash:   "testhash123",
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
@@ -58,22 +58,22 @@ func TestAPIKeyRepository_Create(t *testing.T) {
 
 	saved, err := repo.GetByID(ctx, key.ID)
 	require.NoError(t, err)
-	assert.Equal(t, key.Key, saved.Key)
+	assert.Equal(t, key.KeyHash, saved.KeyHash)
 	assert.Equal(t, key.AccountID, saved.AccountID)
 	assert.True(t, saved.Active)
 }
 
-func TestAPIKeyRepository_Create_DuplicateKey(t *testing.T) {
+func TestAPIKeyRepository_Create_DuplicateKeyHash(t *testing.T) {
 	pool := testutil.SetupTestDB(t)
 	repo := NewAPIKeyRepositoryPG(pool)
 	ctx := context.Background()
 	accountID := createTestAccount(t, pool)
 
-	keyValue := "duplicate-key-value"
+	hashValue := "duplicate-hash-value"
 	key1 := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       keyValue,
+		KeyHash:   hashValue,
 		Active:    true,
 	}
 	require.NoError(t, repo.Create(ctx, key1))
@@ -81,7 +81,7 @@ func TestAPIKeyRepository_Create_DuplicateKey(t *testing.T) {
 	key2 := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       keyValue,
+		KeyHash:   hashValue,
 		Active:    true,
 	}
 	err := repo.Create(ctx, key2)
@@ -91,28 +91,29 @@ func TestAPIKeyRepository_Create_DuplicateKey(t *testing.T) {
 	assert.Equal(t, "23505", pgErr.Code)
 }
 
-func TestAPIKeyRepository_GetByKey(t *testing.T) {
+func TestAPIKeyRepository_GetByKeyHash(t *testing.T) {
 	pool := testutil.SetupTestDB(t)
 	repo := NewAPIKeyRepositoryPG(pool)
 	ctx := context.Background()
 	accountID := createTestAccount(t, pool)
 
+	hashValue := "my-secret-hash"
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       "my-secret-key",
+		KeyHash:   hashValue,
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
 	err := repo.Create(ctx, key)
 	require.NoError(t, err)
 
-	found, err := repo.GetByKey(ctx, "my-secret-key")
+	found, err := repo.GetByKeyHash(ctx, hashValue)
 	require.NoError(t, err)
 	assert.Equal(t, key.ID, found.ID)
 	assert.Equal(t, accountID, found.AccountID)
 
-	_, err = repo.GetByKey(ctx, "nonexistent")
+	_, err = repo.GetByKeyHash(ctx, "nonexistent")
 	assert.Error(t, err)
 }
 
@@ -125,7 +126,7 @@ func TestAPIKeyRepository_Update(t *testing.T) {
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       "original",
+		KeyHash:   "original-hash",
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
@@ -150,7 +151,7 @@ func TestAPIKeyRepository_Delete(t *testing.T) {
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       "to-delete",
+		KeyHash:   "to-delete",
 		Active:    true,
 	}
 	require.NoError(t, repo.Create(ctx, key))
@@ -168,8 +169,8 @@ func TestAPIKeyRepository_GetByAccountID(t *testing.T) {
 	ctx := context.Background()
 	accountID := createTestAccount(t, pool)
 
-	key1 := &apikey.APIKey{ID: uuid.New(), AccountID: accountID, Key: "k1", Active: true, CreatedAt: time.Now()}
-	key2 := &apikey.APIKey{ID: uuid.New(), AccountID: accountID, Key: "k2", Active: false, CreatedAt: time.Now()}
+	key1 := &apikey.APIKey{ID: uuid.New(), AccountID: accountID, KeyHash: "hash1", Active: true, CreatedAt: time.Now()}
+	key2 := &apikey.APIKey{ID: uuid.New(), AccountID: accountID, KeyHash: "hash2", Active: false, CreatedAt: time.Now()}
 	require.NoError(t, repo.Create(ctx, key1))
 	require.NoError(t, repo.Create(ctx, key2))
 
@@ -199,9 +200,9 @@ func TestAPIKeyRepository_Update_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	key := &apikey.APIKey{
-		ID:     uuid.New(),
-		Key:    "nonexistent",
-		Active: false,
+		ID:      uuid.New(),
+		KeyHash: "nonexistent",
+		Active:  false,
 	}
 	err := repo.Update(ctx, key)
 	require.Error(t, err)

@@ -28,7 +28,7 @@ func NewHandler(service APIKeyService) *Handler {
 
 // GenerateAPIKey godoc
 // @Summary      Generate API key
-// @Description  Creates a new API key for the account
+// @Description  Creates a new API key for the account. The full key is returned only once.
 // @Tags         apikey
 // @Produce      json
 // @Param        id path string true "Account ID"
@@ -60,12 +60,13 @@ func (h *Handler) GenerateAPIKey(c *gin.Context) {
 		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	c.JSON(http.StatusCreated, ToAPIKeyResponse(key))
+	// Return full key only on creation
+	c.JSON(http.StatusCreated, ToAPIKeyResponse(key, true))
 }
 
 // ListAPIKeys godoc
 // @Summary      List API keys
-// @Description  Returns all API keys belonging to the account
+// @Description  Returns all API keys belonging to the account (only key prefixes).
 // @Tags         apikey
 // @Produce      json
 // @Param        id path string true "Account ID"
@@ -90,7 +91,7 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 	}
 	resp := make([]APIKeyResponse, len(keys))
 	for i, k := range keys {
-		resp[i] = ToAPIKeyResponse(k)
+		resp[i] = ToAPIKeyResponse(k, false)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -142,7 +143,7 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	c.JSON(http.StatusOK, ToAPIKeyResponse(key))
+	c.JSON(http.StatusOK, ToAPIKeyResponse(key, false))
 }
 
 // DeleteAPIKey godoc

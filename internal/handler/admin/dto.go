@@ -77,20 +77,27 @@ type APIKeyResponse struct {
 	ID          string `json:"id"`
 	AccountID   string `json:"accountId"`
 	AccountName string `json:"accountName,omitempty"`
-	Key         string `json:"key"`
+	KeyPrefix   string `json:"keyPrefix,omitempty"` // first 8 chars
 	Active      bool   `json:"active"`
 	CreatedAt   string `json:"createdAt"`
 }
 
 func ToAPIKeyResponse(key *apikey.APIKey, accountName string) APIKeyResponse {
-	return APIKeyResponse{
+	resp := APIKeyResponse{
 		ID:          key.ID.String(),
 		AccountID:   key.AccountID.String(),
 		AccountName: accountName,
-		Key:         key.Key,
 		Active:      key.Active,
 		CreatedAt:   key.CreatedAt.Format(time.RFC3339),
 	}
+	if key.PlainKey != "" {
+		if len(key.PlainKey) >= 8 {
+			resp.KeyPrefix = key.PlainKey[:8] + "..."
+		} else {
+			resp.KeyPrefix = key.PlainKey + "..."
+		}
+	}
+	return resp
 }
 
 type UpdateAPIKeyRequest struct {
