@@ -106,13 +106,36 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 // @Param        body body UpdateAPIKeyActiveRequest true "Active status"
 // @Success      200 {object} APIKeyResponse
 // @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys/{key_id} [patch]
 func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
+	accountID := c.Param("id")
 	keyID := c.Param("key_id")
+
+	// Verify that the key belongs to the account specified in the URL.
+	key, err := h.service.GetByID(c, keyID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, apikey_service.ErrInvalidKeyID) {
+			status = http.StatusBadRequest
+			message = "invalid key ID"
+		} else if errors.Is(err, apikey_service.ErrKeyNotFound) {
+			status = http.StatusNotFound
+			message = "API key not found"
+		}
+		c.JSON(status, gin.H{"error": message})
+		return
+	}
+	if key.AccountID.String() != accountID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "API key does not belong to this account"})
+		return
+	}
+
 	var req UpdateAPIKeyActiveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -132,18 +155,13 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	key, err := h.service.GetByID(c, keyID)
+	// Retrieve the updated key to return.
+	updatedKey, err := h.service.GetByID(c, keyID)
 	if err != nil {
-		status := http.StatusInternalServerError
-		message := err.Error()
-		if errors.Is(err, apikey_service.ErrKeyNotFound) {
-			status = http.StatusNotFound
-			message = "API key not found"
-		}
-		c.JSON(status, gin.H{"error": message})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch updated key"})
 		return
 	}
-	c.JSON(http.StatusOK, ToAPIKeyResponse(key, false))
+	c.JSON(http.StatusOK, ToAPIKeyResponse(updatedKey, false))
 }
 
 // DeleteAPIKey godoc
@@ -154,13 +172,36 @@ func (h *Handler) UpdateAPIKeyActive(c *gin.Context) {
 // @Param        key_id path string true "API Key ID"
 // @Success      204 "No Content"
 // @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
 // @Router       /accounts/{id}/keys/{key_id} [delete]
 func (h *Handler) DeleteAPIKey(c *gin.Context) {
+	accountID := c.Param("id")
 	keyID := c.Param("key_id")
+
+	// Verify that the key belongs to the account specified in the URL.
+	key, err := h.service.GetByID(c, keyID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := err.Error()
+		if errors.Is(err, apikey_service.ErrInvalidKeyID) {
+			status = http.StatusBadRequest
+			message = "invalid key ID"
+		} else if errors.Is(err, apikey_service.ErrKeyNotFound) {
+			status = http.StatusNotFound
+			message = "API key not found"
+		}
+		c.JSON(status, gin.H{"error": message})
+		return
+	}
+	if key.AccountID.String() != accountID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "API key does not belong to this account"})
+		return
+	}
+
 	if err := h.service.Delete(c, keyID); err != nil {
 		status := http.StatusInternalServerError
 		message := err.Error()

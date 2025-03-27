@@ -126,6 +126,11 @@ func main() {
 		WriteTimeout: cfg.HTTPTimeout,
 	}
 
+	// Register a shutdown hook to log that shutdown has been initiated.
+	srv.RegisterOnShutdown(func() {
+		logger.Info("server shutdown initiated, waiting for active connections to finish")
+	})
+
 	go func() {
 		logger.Info("server started", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -139,7 +144,8 @@ func main() {
 	<-quit
 	logger.Info("shutting down server...")
 
-	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	// Increased timeout to 30 seconds to allow active requests to finish gracefully.
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()
 	if err := srv.Shutdown(ctxShutdown); err != nil {
 		logger.Error("server forced to shutdown", "error", err)

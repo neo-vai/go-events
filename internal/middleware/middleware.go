@@ -180,22 +180,33 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 		allowOrigin := ""
+		allowCredentials := false
+
+		// Determine if we should allow the origin and credentials.
 		if len(allowedOrigins) == 0 || (len(allowedOrigins) == 1 && allowedOrigins[0] == "*") {
 			allowOrigin = "*"
+			// Credentials cannot be true when origin is "*".
+			allowCredentials = false
 		} else {
 			for _, o := range allowedOrigins {
 				if o == origin {
 					allowOrigin = origin
+					allowCredentials = true
 					break
 				}
 			}
 		}
+
 		if allowOrigin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		}
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		if allowCredentials {
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Request-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
