@@ -56,16 +56,14 @@ func (m *MockAPIKeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func TestAPIKeyService_Generate(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	accountID := uuid.New().String()
 
-	// Mock the Create call and capture the key to verify hash
 	repo.On("Create", ctx, mock.AnythingOfType("*apikey.APIKey")).Return(nil).Run(func(args mock.Arguments) {
 		key := args.Get(1).(*apikey.APIKey)
 		assert.NotEmpty(t, key.KeyHash)
 		assert.NotEmpty(t, key.PlainKey)
-		// Verify that hash matches the plain key
 		hasher := sha256.New()
 		hasher.Write([]byte(key.PlainKey))
 		expectedHash := hex.EncodeToString(hasher.Sum(nil))
@@ -83,7 +81,7 @@ func TestAPIKeyService_Generate(t *testing.T) {
 
 func TestAPIKeyService_Generate_InvalidAccountID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	_, err := svc.Generate(ctx, "not-a-uuid")
 	assert.Error(t, err)
@@ -92,7 +90,7 @@ func TestAPIKeyService_Generate_InvalidAccountID(t *testing.T) {
 
 func TestAPIKeyService_Generate_RepoError(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	accountID := uuid.New().String()
 	repo.On("Create", ctx, mock.Anything).Return(errors.New("db error")).Once()
@@ -103,7 +101,7 @@ func TestAPIKeyService_Generate_RepoError(t *testing.T) {
 
 func TestAPIKeyService_GetByID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	expected := &apikey.APIKey{ID: id, KeyHash: "somehash"}
@@ -115,7 +113,7 @@ func TestAPIKeyService_GetByID(t *testing.T) {
 
 func TestAPIKeyService_GetByID_InvalidID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	_, err := svc.GetByID(ctx, "invalid")
 	assert.Error(t, err)
@@ -124,7 +122,7 @@ func TestAPIKeyService_GetByID_InvalidID(t *testing.T) {
 
 func TestAPIKeyService_UpdateActive(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	key := &apikey.APIKey{ID: id, Active: true}
@@ -138,7 +136,7 @@ func TestAPIKeyService_UpdateActive(t *testing.T) {
 
 func TestAPIKeyService_UpdateActive_InvalidID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	err := svc.UpdateActive(ctx, "bad", true)
 	assert.Error(t, err)
@@ -147,7 +145,7 @@ func TestAPIKeyService_UpdateActive_InvalidID(t *testing.T) {
 
 func TestAPIKeyService_UpdateActive_KeyNotFound(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	repo.On("GetByID", ctx, id).Return(nil, ErrKeyNotFound).Once()
@@ -158,7 +156,7 @@ func TestAPIKeyService_UpdateActive_KeyNotFound(t *testing.T) {
 
 func TestAPIKeyService_Delete_NotFound(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	repo.On("Delete", ctx, id).Return(ErrKeyNotFound).Once()
@@ -169,7 +167,7 @@ func TestAPIKeyService_Delete_NotFound(t *testing.T) {
 
 func TestAPIKeyService_UpdateActive_RepoNoRows(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	key := &apikey.APIKey{ID: id, Active: true}
@@ -182,7 +180,7 @@ func TestAPIKeyService_UpdateActive_RepoNoRows(t *testing.T) {
 
 func TestAPIKeyService_Delete(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	id := uuid.New()
 	repo.On("Delete", ctx, id).Return(nil).Once()
@@ -193,7 +191,7 @@ func TestAPIKeyService_Delete(t *testing.T) {
 
 func TestAPIKeyService_Delete_InvalidID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	err := svc.Delete(ctx, "bad")
 	assert.Error(t, err)
@@ -202,7 +200,7 @@ func TestAPIKeyService_Delete_InvalidID(t *testing.T) {
 
 func TestAPIKeyService_ListByAccount(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	accountID := uuid.New()
 	keys := []*apikey.APIKey{{ID: uuid.New()}, {ID: uuid.New()}}
@@ -215,7 +213,7 @@ func TestAPIKeyService_ListByAccount(t *testing.T) {
 
 func TestAPIKeyService_ListByAccount_InvalidAccountID(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	_, err := svc.ListByAccount(ctx, "invalid")
 	assert.Error(t, err)
@@ -224,7 +222,7 @@ func TestAPIKeyService_ListByAccount_InvalidAccountID(t *testing.T) {
 
 func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	accountID := uuid.New()
 	plainKey := "my-valid-plain-key"
@@ -238,9 +236,8 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 	gotAccountID, gotRole, err := svc.ValidateAPIKey(ctx, plainKey)
 	assert.NoError(t, err)
 	assert.Equal(t, accountID.String(), gotAccountID)
-	assert.Equal(t, "", gotRole) // role is not fetched in this method
+	assert.Equal(t, "", gotRole)
 
-	// inactive key
 	apiKeyObj.Active = false
 	repo.On("GetByKeyHash", ctx, hash).Return(apiKeyObj, nil).Once()
 	_, _, err = svc.ValidateAPIKey(ctx, plainKey)
@@ -250,7 +247,7 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 
 func TestAPIKeyService_ValidateAPIKey_NotFound(t *testing.T) {
 	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo)
+	svc := NewAPIKeyService(repo, 32)
 	ctx := context.Background()
 	plainKey := "missing"
 	hasher := sha256.New()

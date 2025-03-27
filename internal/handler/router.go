@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler/account"
 	"github.com/neo-vai/go-events/internal/handler/admin"
 	"github.com/neo-vai/go-events/internal/handler/apikey"
@@ -30,7 +31,6 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 		if err != nil {
 			return "", "", err
 		}
-		// Fetch account to get role
 		acc, err := accountSvc.GetByID(ctx, accountID)
 		if err != nil {
 			return "", "", err
@@ -39,31 +39,34 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 	}
 }
 
-func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService) *gin.Engine {
+func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService, cfg *config.Config) *gin.Engine {
 	r := gin.New()
 	// Global middleware
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS())
-	r.Use(middleware.RateLimiter(100, 1))
 
-	// Health check
+	// Apply global rate limiter
+	globalLimiter := middleware.NewRateLimiter(cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
+	r.Use(globalLimiter)
+
+	// Health check (no auth, but rate limited globally)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
 	api := r.Group("/api/v1")
 	{
-		// Public routes
-		api.POST("/accounts", h.Account.CreateAccount)
-		api.POST("/login", h.Auth.Login)
+		// Public routes with stricter rate limit on login
+		loginLimiter := middleware.NewRateLimiter(cfg.RateLimitLogin.Requests, cfg.RateLimitLogin.Per)
+		api.POST("/accounts", h.Account.CreateAccount) // account creation also uses global limiter (already applied)
+		api.POST("/login", loginLimiter, h.Auth.Login)
 
 		// Protected routes (JWT or API Key)
 		protected := api.Group("/")
-		protected.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc)))
+		protected.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc), cfg.JWTSecret))
 		{
-			// Account endpoints – require ownership
 			accountGroup := protected.Group("/accounts/:id")
 			accountGroup.Use(middleware.OwnerCheck())
 			{
@@ -77,7 +80,6 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 				accountGroup.DELETE("/keys/:key_id", h.APIKey.DeleteAPIKey)
 			}
 
-			// Event endpoints – automatically scoped to authenticated account
 			protected.POST("/events", h.Event.CreateEvent)
 			protected.GET("/events", h.Event.ListEvents)
 			protected.GET("/events/:id", h.Event.GetEvent)
@@ -85,25 +87,21 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 
 		// Admin routes (JWT only, admin role required)
 		adminGroup := api.Group("/admin")
-		adminGroup.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc)), middleware.RequireAdmin())
+		adminGroup.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc), cfg.JWTSecret), middleware.RequireAdmin())
 		{
-			// Accounts
 			adminGroup.GET("/accounts", h.Admin.ListAccounts)
 			adminGroup.GET("/accounts/:id", h.Admin.GetAccount)
 			adminGroup.POST("/accounts", h.Admin.CreateAccount)
 			adminGroup.PUT("/accounts/:id", h.Admin.UpdateAccount)
 			adminGroup.DELETE("/accounts/:id", h.Admin.DeleteAccount)
 
-			// Events
 			adminGroup.GET("/events", h.Admin.ListEvents)
 			adminGroup.GET("/events/:id", h.Admin.GetEvent)
 
-			// API Keys
 			adminGroup.GET("/api-keys", h.Admin.ListAPIKeys)
 			adminGroup.PUT("/api-keys/:id", h.Admin.UpdateAPIKey)
 			adminGroup.DELETE("/api-keys/:id", h.Admin.DeleteAPIKey)
 
-			// Stats
 			adminGroup.GET("/stats", h.Admin.GetStats)
 		}
 	}

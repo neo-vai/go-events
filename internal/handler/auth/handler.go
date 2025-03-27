@@ -15,11 +15,17 @@ type AccountService interface {
 }
 
 type Handler struct {
-	accountSvc AccountService
+	accountSvc      AccountService
+	jwtSecret       string
+	jwtExpiresHours int
 }
 
-func NewHandler(accountSvc AccountService) *Handler {
-	return &Handler{accountSvc: accountSvc}
+func NewHandler(accountSvc AccountService, jwtSecret string, jwtExpiresHours int) *Handler {
+	return &Handler{
+		accountSvc:      accountSvc,
+		jwtSecret:       jwtSecret,
+		jwtExpiresHours: jwtExpiresHours,
+	}
 }
 
 type LoginRequest struct {
@@ -51,7 +57,6 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 	valid, err := h.accountSvc.VerifyPassword(c, req.Login, req.Password)
 	if err != nil {
-		// Check for inactive account error
 		if err.Error() == "account is inactive" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account is inactive"})
 			return
@@ -68,7 +73,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve account"})
 		return
 	}
-	token, err := middleware.GenerateJWT(acc.ID.String(), acc.Role)
+	token, err := middleware.GenerateJWT(acc.ID.String(), acc.Role, h.jwtSecret, h.jwtExpiresHours)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return

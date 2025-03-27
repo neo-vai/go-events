@@ -1,19 +1,18 @@
-// file: cmd/api/main.go
-
 package main
 
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler"
 	accountHandler "github.com/neo-vai/go-events/internal/handler/account"
 	adminHandler "github.com/neo-vai/go-events/internal/handler/admin"
@@ -47,17 +46,47 @@ import (
 // @name                        X-API-Key
 // @description                 API key for authentication
 func main() {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL is not set")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
 	}
+
+	// Setup structured logging
+	logLevel := slog.LevelInfo
+	switch cfg.LogLevel {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	slog.SetDefault(logger)
+
+	logger.Info("starting server",
+		"env", cfg.Env,
+		"port", cfg.Port,
+		"log_level", cfg.LogLevel,
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v", err)
+		logger.Error("unable to parse database URL", "error", err)
+		os.Exit(1)
+	}
+	poolConfig.MaxConns = int32(cfg.DBMaxConns)
+	poolConfig.MinConns = int32(cfg.DBMinConns)
+	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		logger.Error("unable to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -65,16 +94,15 @@ func main() {
 	apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
 
-	passwordHasher := account_service.NewBcryptHasher(0)
+	passwordHasher := account_service.NewBcryptHasher(cfg.BcryptCost)
 	accountService := account_service.NewAccountService(accountRepo, passwordHasher)
-	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo)
+	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo, cfg.APIKeyLength)
 	eventService := event_service.NewEventService(eventRepo)
-	authService := accountService
 
 	accountH := accountHandler.NewHandler(accountService)
 	apiKeyH := apikeyHandler.NewHandler(apiKeyService)
 	eventH := eventHandler.NewHandler(eventService)
-	authH := authHandler.NewHandler(authService)
+	authH := authHandler.NewHandler(accountService, cfg.JWTSecret, cfg.JWTExpiresHours)
 
 	statsSvc := &simpleStatsService{db: pool}
 	adminH := adminHandler.NewHandler(accountService, eventService, apiKeyService, statsSvc)
@@ -85,49 +113,40 @@ func main() {
 		Event:   eventH,
 		Auth:    authH,
 		Admin:   adminH,
-	}, apiKeyService, accountService)
+	}, apiKeyService, accountService, cfg)
 
-	// Configure trusted proxies so Gin correctly reads X-Forwarded-* headers
-	trustedProxies := os.Getenv("TRUSTED_PROXIES")
-	if trustedProxies == "" {
-		trustedProxies = "127.0.0.1,::1" // default for local development
-	}
-	if err := router.SetTrustedProxies(strings.Split(trustedProxies, ",")); err != nil {
-		log.Printf("Warning: failed to set trusted proxies: %v", err)
-	}
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		logger.Warn("failed to set trusted proxies", "error", err)
 	}
 
 	srv := &http.Server{
-		Addr:         ":" + port,
+		Addr:         ":" + cfg.Port,
 		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  cfg.HTTPTimeout,
+		WriteTimeout: cfg.HTTPTimeout,
 	}
 
 	go func() {
-		log.Printf("Server started on port %s", port)
+		logger.Info("server started", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			logger.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	logger.Info("shutting down server...")
+
 	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
 	if err := srv.Shutdown(ctxShutdown); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Error("server forced to shutdown", "error", err)
 	}
-	log.Println("Server exited properly")
+	logger.Info("server exited properly")
 }
 
-// simpleStatsService implements admin.StatsService
 type simpleStatsService struct {
 	db *pgxpool.Pool
 }

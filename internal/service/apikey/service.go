@@ -15,7 +15,6 @@ import (
 	"github.com/neo-vai/go-events/internal/repository/apikey/postgres"
 )
 
-// Domain errors
 var (
 	ErrInvalidAccountID = errors.New("invalid account ID")
 	ErrInvalidKeyID     = errors.New("invalid key ID")
@@ -36,16 +35,19 @@ type APIKeyRepository interface {
 }
 
 type APIKeyService struct {
-	repo APIKeyRepository
+	repo         APIKeyRepository
+	apiKeyLength int
 }
 
-func NewAPIKeyService(repo APIKeyRepository) *APIKeyService {
-	return &APIKeyService{repo: repo}
+func NewAPIKeyService(repo APIKeyRepository, apiKeyLength int) *APIKeyService {
+	return &APIKeyService{
+		repo:         repo,
+		apiKeyLength: apiKeyLength,
+	}
 }
 
-// generateSecureKey creates a cryptographically random key (32 bytes) and returns both the plain key and its SHA-256 hash.
-func generateSecureKey() (plainKey, hash string, err error) {
-	bytes := make([]byte, 32)
+func (s *APIKeyService) generateSecureKey() (plainKey, hash string, err error) {
+	bytes := make([]byte, s.apiKeyLength)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", "", err
 	}
@@ -56,14 +58,13 @@ func generateSecureKey() (plainKey, hash string, err error) {
 	return plainKey, hash, nil
 }
 
-// Generate creates a new API key for the given accountID.
 func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*apikey.APIKey, error) {
 	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
 		return nil, ErrInvalidAccountID
 	}
 
-	plainKey, hash, err := generateSecureKey()
+	plainKey, hash, err := s.generateSecureKey()
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*api
 		ID:        uuid.New(),
 		AccountID: accountID,
 		KeyHash:   hash,
-		PlainKey:  plainKey, // will be returned to the caller
+		PlainKey:  plainKey,
 		Active:    true,
 		CreatedAt: time.Now(),
 	}
@@ -91,7 +92,6 @@ func (s *APIKeyService) Generate(ctx context.Context, accountIDStr string) (*api
 	return key, nil
 }
 
-// GetByID returns a key by its ID.
 func (s *APIKeyService) GetByID(ctx context.Context, idStr string) (*apikey.APIKey, error) {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -104,7 +104,6 @@ func (s *APIKeyService) GetByID(ctx context.Context, idStr string) (*apikey.APIK
 	return key, nil
 }
 
-// UpdateActive toggles the active status of an API key.
 func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active bool) error {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -122,7 +121,6 @@ func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active b
 	return err
 }
 
-// Delete removes an API key.
 func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -135,7 +133,6 @@ func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 	return err
 }
 
-// ListByAccount returns all API keys for a given account.
 func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) ([]*apikey.APIKey, error) {
 	accountID, err := uuid.Parse(accountIDStr)
 	if err != nil {
@@ -148,8 +145,6 @@ func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) 
 	return keys, nil
 }
 
-// ValidateAPIKey validates the plain API key and returns the associated account ID.
-// It computes the hash of the provided key and looks it up.
 func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (accountID string, role string, err error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(plainKey))

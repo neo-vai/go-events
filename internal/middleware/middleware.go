@@ -3,8 +3,6 @@ package middleware
 import (
 	"encoding/json"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,18 +27,8 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// GenerateJWT creates a new JWT token including the user's role.
-func GenerateJWT(accountID, role string) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "default-secret-change-me"
-	}
-	expiresHours := 24
-	if val := os.Getenv("JWT_EXPIRES_HOURS"); val != "" {
-		if v, err := strconv.Atoi(val); err == nil {
-			expiresHours = v
-		}
-	}
+// GenerateJWT creates a new JWT token using the provided secret and expiration hours.
+func GenerateJWT(accountID, role, jwtSecret string, expiresHours int) (string, error) {
 	claims := Claims{
 		AccountID: accountID,
 		Role:      role,
@@ -50,18 +38,14 @@ func GenerateJWT(accountID, role string) (string, error) {
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
+	return token.SignedString([]byte(jwtSecret))
 }
 
-// ValidateJWT parses and validates the token.
-func ValidateJWT(tokenString string) (*Claims, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "default-secret-change-me"
-	}
+// ValidateJWT parses and validates the token using the provided secret.
+func ValidateJWT(tokenString, jwtSecret string) (*Claims, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
+		return []byte(jwtSecret), nil
 	})
 	if err != nil || !token.Valid {
 		return nil, err
@@ -70,7 +54,7 @@ func ValidateJWT(tokenString string) (*Claims, error) {
 }
 
 // JWTAuth middleware (kept for backward compatibility, but not used in router now).
-func JWTAuth() gin.HandlerFunc {
+func JWTAuth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -82,7 +66,7 @@ func JWTAuth() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
 			return
 		}
-		claims, err := ValidateJWT(parts[1])
+		claims, err := ValidateJWT(parts[1], jwtSecret)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
@@ -94,23 +78,20 @@ func JWTAuth() gin.HandlerFunc {
 }
 
 // UniversalAuth tries JWT first if Authorization header is present, otherwise falls back to API key.
-// It does NOT fall back from an invalid JWT to a valid API key; if a JWT is provided,
-// it must be valid for the request to proceed.
-// For API key authentication, it fetches the account and sets both accountID and role.
-func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role string, err error)) gin.HandlerFunc {
+// It requires jwtSecret for JWT validation.
+func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role string, err error), jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
-				claims, err := ValidateJWT(parts[1])
+				claims, err := ValidateJWT(parts[1], jwtSecret)
 				if err == nil {
 					c.Set(string(AccountIDKey), claims.AccountID)
 					c.Set(string(RoleKey), claims.Role)
 					c.Next()
 					return
 				}
-				// JWT was provided but invalid – reject immediately
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 				return
 			}
@@ -172,12 +153,12 @@ func StructuredLogger() gin.HandlerFunc {
 	}
 }
 
-var (
-	limiters = make(map[string]*rate.Limiter)
-	mu       sync.RWMutex
-)
-
-func RateLimiter(requests int, duration time.Duration) gin.HandlerFunc {
+// NewRateLimiter creates a rate limiter middleware with configurable requests per duration.
+func NewRateLimiter(requests int, per time.Duration) gin.HandlerFunc {
+	var (
+		limiters = make(map[string]*rate.Limiter)
+		mu       sync.RWMutex
+	)
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		mu.RLock()
@@ -185,7 +166,7 @@ func RateLimiter(requests int, duration time.Duration) gin.HandlerFunc {
 		mu.RUnlock()
 		if !exists {
 			mu.Lock()
-			limiter = rate.NewLimiter(rate.Limit(float64(requests))/rate.Limit(duration.Seconds()), requests)
+			limiter = rate.NewLimiter(rate.Every(per/time.Duration(requests)), requests)
 			limiters[ip] = limiter
 			mu.Unlock()
 		}
