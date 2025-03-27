@@ -15,7 +15,6 @@ import (
 type EventService interface {
 	CreateEvent(ctx context.Context, ev *event.Event) error
 	GetByID(ctx context.Context, id string) (*event.Event, error)
-	// ListEvents is kept for backward compatibility; prefer ListEventsPaginated.
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
 	ListEventsPaginated(ctx context.Context, accountID string, page, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error)
 }
@@ -30,12 +29,14 @@ func NewHandler(service EventService) *Handler {
 
 // CreateEvent godoc
 // @Summary      Create event
+// @Description  Creates a new event. If authenticated with an API key, the key ID is automatically associated.
 // @Tags         event
 // @Accept       json
 // @Produce      json
 // @Param        body body CreateEventRequest true "Event data"
 // @Success      201 {object} EventResponse
 // @Failure      400 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
@@ -54,10 +55,17 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		return
 	}
 
+	// If authenticated via API key, the middleware has set apiKeyID in context.
+	apiKeyID, _ := c.Get(string(middleware.APIKeyIDKey))
+	var apiKeyIDStr string
+	if apiKeyID != nil {
+		apiKeyIDStr = apiKeyID.(string)
+	}
+
 	ev := &event.Event{
 		AccountID: authenticatedAccountID.(string),
 		Username:  req.Username,
-		APIKeyID:  req.APIKeyID,
+		APIKeyID:  apiKeyIDStr,
 		Name:      req.Name,
 		Payload:   req.Payload,
 	}
@@ -81,6 +89,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Param        q           query string false "Search query (username, name, payload)"
 // @Success      200 {array} EventResponse
 // @Header       200 {integer} X-Total-Count "Total number of items (only when paginated)"
+// @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
@@ -140,6 +149,8 @@ func (h *Handler) ListEvents(c *gin.Context) {
 // @Produce      json
 // @Param        id path string true "Event ID"
 // @Success      200 {object} EventResponse
+// @Failure      401 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth

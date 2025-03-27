@@ -145,19 +145,20 @@ func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) 
 	return keys, nil
 }
 
-func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (accountID string, role string, err error) {
+// ValidateAPIKey verifies the plain API key and returns accountID, role, and apiKeyID.
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (accountID string, role string, apiKeyID string, err error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(plainKey))
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
 	apiKey, err := s.repo.GetByKeyHash(ctx, hash)
 	if err != nil {
-		return "", "", ErrKeyNotFound
+		return "", "", "", ErrKeyNotFound
 	}
 	if !apiKey.Active {
-		return "", "", ErrInactiveKey
+		return "", "", "", ErrInactiveKey
 	}
-	return apiKey.AccountID.String(), "", nil
+	return apiKey.AccountID.String(), "", apiKey.ID.String(), nil
 }
 
 func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {

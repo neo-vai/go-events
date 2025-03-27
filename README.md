@@ -2,14 +2,6 @@
 
 This service provides a REST API for tracking events. It allows you to create accounts, manage API keys, and send events with metadata. Events can be queried using various filters.
 
-## Core Concepts
-
-The service manages three main entities:
-
-- **Account** – represents a user or system that owns events and API keys. Each account has a unique ID, name, email, login, and a hashed password.
-- **API Key** – a secret token associated with an account. API keys can be activated or deactivated and are used for authentication instead of JWT.
-- **Event** – a record of something that happened. Each event belongs to an account, has a name, a username, an optional API key ID, and a JSON payload.
-
 ## Authentication
 
 The API supports two authentication methods:
@@ -19,56 +11,44 @@ The API supports two authentication methods:
 
 Protected endpoints automatically accept either method. The authentication middleware tries JWT first, then falls back to API key validation.
 
-## How It Works Internally
+## API Endpoints
 
-The application follows a layered architecture:
+All endpoints are prefixed with `/api/v1`. Admin endpoints are under `/api/v1/admin`.
 
-- **Handlers** (in `internal/handler`) parse HTTP requests, validate input, and call the appropriate service.
-- **Services** (in `internal/service`) contain business logic. They coordinate repositories and apply rules (e.g., password hashing, key generation).
-- **Repositories** (in `internal/repository`) abstract database operations. The only implementation uses PostgreSQL with pgx.
-- **Models** (in `internal/model`) define the core data structures.
+### Public Endpoints
 
-Middleware adds cross-cutting concerns:
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/accounts` | Create a new account. |
+| POST | `/login` | Authenticate and receive a JWT token. |
 
-- Request ID generation and propagation
-- Structured JSON logging (method, path, status, latency)
-- CORS headers
-- Per-IP rate limiting
-- Authentication via JWT or API key
+### Protected Endpoints (require authentication)
 
-## Database Schema
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/accounts/:id` | Get account details (owner only). |
+| PUT | `/accounts/:id` | Update account (owner only). |
+| DELETE | `/accounts/:id` | Delete account (owner only). |
+| POST | `/accounts/:id/keys` | Generate a new API key for the account. The full key is returned **only once**. |
+| GET | `/accounts/:id/keys` | List all API keys for the account (only key prefixes are shown). |
+| PATCH | `/accounts/:id/keys/:key_id` | Activate or deactivate an API key. |
+| DELETE | `/accounts/:id/keys/:key_id` | Delete an API key. |
+| POST | `/events` | Create a new event. If authenticated with an API key, the key ID is automatically recorded. |
+| GET | `/events` | List events belonging to the authenticated account with optional pagination and filters. |
+| GET | `/events/:id` | Get a single event by ID (must belong to the authenticated account). |
 
-Three tables are used:
+### Admin Endpoints (require admin role)
 
-- `accounts` – stores account details, including a hashed password.
-- `api_keys` – stores API keys linked to an account. Deleting an account cascades to its keys.
-- `events` – stores event records. The `api_key_id` column is nullable (set to NULL if the key is deleted).
-
-Indexes exist on `events.account_id`, `events.username`, `events.name`, and `events.created_at` for faster queries.
-
-## Event Filtering Logic
-
-The `ListEvents` handler supports filtering by `account_id`, `user` (username), and `api_key_id`. The service layer combines these filters:
-
-- If multiple filters are provided, the results are intersected in memory.
-- Because the repository only supports a subset of combined filters, the service fetches the broadest set and then narrows it down.
-
-## Swagger Documentation
-
-The API is documented with Swagger 2.0. The spec is generated from code annotations in the handlers. The UI is served at `/swagger/index.html`.
-
-## Testing Approach
-
-- Unit tests use mocks generated with `testify/mock`.
-- Integration tests use a real PostgreSQL database (via a test container). The `testutil` package sets up a connection pool and truncates tables between tests to ensure isolation.
-
-## Project Layout
-
-- `cmd/api/main.go` – entry point, sets up the database pool, wires dependencies, and starts the HTTP server.
-- `internal/handler/` – HTTP layer (account, api key, auth, event). Also contains DTOs for requests/responses.
-- `internal/middleware/` – reusable Gin middleware.
-- `internal/service/` – business logic.
-- `internal/repository/` – database implementations, each with an interface.
-- `internal/model/` – plain structs representing database rows.
-- `migrations/` – SQL files for creating and dropping the schema.
-- `docs/` – auto-generated Swagger files.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/accounts` | List all accounts (paginated, supports filtering). |
+| GET | `/admin/accounts/:id` | Get account details. |
+| POST | `/admin/accounts` | Create a new account (admin can set role). |
+| PUT | `/admin/accounts/:id` | Update account (including role and active status). |
+| DELETE | `/admin/accounts/:id` | Delete account. |
+| GET | `/admin/events` | List all events across all accounts. |
+| GET | `/admin/events/:id` | Get a single event. |
+| GET | `/admin/api-keys` | List all API keys. |
+| PUT | `/admin/api-keys/:id` | Update API key active status. |
+| DELETE | `/admin/api-keys/:id` | Delete API key. |
+| GET | `/admin/stats` | Get system statistics. |

@@ -25,17 +25,17 @@ type Handlers struct {
 
 // APIKeyValidatorFunc adapts apiKeyService.ValidateAPIKey to the signature expected by middleware.
 // It also fetches the account role from the database.
-func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService) func(ctx *gin.Context, key string) (string, string, error) {
-	return func(ctx *gin.Context, key string) (string, string, error) {
-		accountID, _, err := apiKeySvc.ValidateAPIKey(ctx, key)
+func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService) func(ctx *gin.Context, key string) (string, string, string, error) {
+	return func(ctx *gin.Context, key string) (string, string, string, error) {
+		accountID, _, apiKeyID, err := apiKeySvc.ValidateAPIKey(ctx, key)
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 		acc, err := accountSvc.GetByID(ctx, accountID)
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
-		return accountID, acc.Role, nil
+		return accountID, acc.Role, apiKeyID, nil
 	}
 }
 

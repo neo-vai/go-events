@@ -20,6 +20,7 @@ const (
 	AccountIDKey contextKey = "accountID"
 	RequestIDKey contextKey = "requestID"
 	RoleKey      contextKey = "role"
+	APIKeyIDKey  contextKey = "apiKeyID"
 )
 
 type Claims struct {
@@ -80,7 +81,7 @@ func JWTAuth(jwtSecret string) gin.HandlerFunc {
 
 // UniversalAuth tries JWT first if Authorization header is present, otherwise falls back to API key.
 // It requires jwtSecret for JWT validation.
-func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role string, err error), jwtSecret string) gin.HandlerFunc {
+func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role, apiKeyID string, err error), jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
@@ -100,10 +101,11 @@ func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID
 
 		apiKey := c.GetHeader("X-API-Key")
 		if apiKey != "" && apiKeyValidator != nil {
-			accountID, role, err := apiKeyValidator(c, apiKey)
+			accountID, role, apiKeyID, err := apiKeyValidator(c, apiKey)
 			if err == nil && accountID != "" {
 				c.Set(string(AccountIDKey), accountID)
 				c.Set(string(RoleKey), role)
+				c.Set(string(APIKeyIDKey), apiKeyID)
 				c.Next()
 				return
 			}
