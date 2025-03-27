@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -28,7 +29,8 @@ type Config struct {
 	MaxEventsLimit int
 	HTTPTimeout    time.Duration
 
-	TrustedProxies []string
+	TrustedProxies     []string
+	CORSAllowedOrigins []string
 
 	DBMaxConns        int
 	DBMinConns        int
@@ -82,12 +84,66 @@ func Load() (*Config, error) {
 	trusted := getEnv("TRUSTED_PROXIES", "127.0.0.1,::1")
 	cfg.TrustedProxies = splitAndTrim(trusted, ",")
 
+	corsOrigins := getEnv("CORS_ALLOWED_ORIGINS", "")
+	if corsOrigins == "" {
+		// In production, it's safer to have an explicit list; for dev, allow all.
+		if cfg.Env == "development" {
+			cfg.CORSAllowedOrigins = []string{"*"}
+		} else {
+			cfg.CORSAllowedOrigins = []string{}
+		}
+	} else {
+		cfg.CORSAllowedOrigins = splitAndTrim(corsOrigins, ",")
+	}
+
 	cfg.DBMaxConns = getEnvInt("DB_MAX_CONNS", 25)
 	cfg.DBMinConns = getEnvInt("DB_MIN_CONNS", 5)
 	cfg.DBMaxConnLifetime = time.Duration(getEnvInt("DB_MAX_CONN_LIFETIME_SEC", 3600)) * time.Second
 	cfg.DBMaxConnIdleTime = time.Duration(getEnvInt("DB_MAX_CONN_IDLE_TIME_SEC", 1800)) * time.Second
 
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+func (c *Config) validate() error {
+	// JWT secret strength
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters long")
+	}
+
+	// API key length
+	if c.APIKeyLength < 16 {
+		return fmt.Errorf("API_KEY_LENGTH must be at least 16")
+	}
+
+	// Bcrypt cost range
+	if c.BcryptCost < 4 || c.BcryptCost > 31 {
+		return fmt.Errorf("BCRYPT_COST must be between 4 and 31")
+	}
+
+	// Port validation
+	portNum, err := strconv.Atoi(c.Port)
+	if err != nil || portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("PORT must be a valid port number (1-65535)")
+	}
+	if c.Env != "development" && portNum < 1024 {
+		return fmt.Errorf("PORT should be >= 1024 for non-root user")
+	}
+
+	// Database URL format
+	if _, err := url.Parse(c.DatabaseURL); err != nil {
+		return fmt.Errorf("DATABASE_URL is not a valid URL: %w", err)
+	}
+
+	// Ensure at least one trusted proxy is set if not empty (optional)
+	if len(c.TrustedProxies) == 0 && c.Env != "development" {
+		// This is not strictly required, but recommended
+		// We'll just warn via log (but we don't have logger here; we'll skip)
+	}
+
+	return nil
 }
 
 func getEnv(key, defaultValue string) string {

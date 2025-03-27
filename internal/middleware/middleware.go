@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -125,7 +125,7 @@ func RequestID() gin.HandlerFunc {
 	}
 }
 
-// StructuredLogger logs requests in JSON.
+// StructuredLogger logs requests using slog.
 func StructuredLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -138,18 +138,15 @@ func StructuredLogger() gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 		requestID, _ := c.Get(string(RequestIDKey))
-		entry := map[string]interface{}{
-			"level":      "info",
-			"time":       time.Now().UTC().Format(time.RFC3339),
-			"status":     status,
-			"method":     c.Request.Method,
-			"path":       path,
-			"ip":         c.ClientIP(),
-			"latency_ms": latency.Milliseconds(),
-			"request_id": requestID,
-		}
-		enc, _ := json.Marshal(entry)
-		gin.DefaultWriter.Write(append(enc, '\n'))
+
+		slog.LogAttrs(c.Request.Context(), slog.LevelInfo, "http request",
+			slog.Int("status", status),
+			slog.String("method", c.Request.Method),
+			slog.String("path", path),
+			slog.String("ip", c.ClientIP()),
+			slog.Int64("latency_ms", latency.Milliseconds()),
+			slog.String("request_id", requestID.(string)),
+		)
 	}
 }
 
@@ -178,10 +175,24 @@ func NewRateLimiter(requests int, per time.Duration) gin.HandlerFunc {
 	}
 }
 
-// CORS middleware.
-func CORS() gin.HandlerFunc {
+// CORS middleware with configurable allowed origins.
+func CORS(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+		allowOrigin := ""
+		if len(allowedOrigins) == 0 || (len(allowedOrigins) == 1 && allowedOrigins[0] == "*") {
+			allowOrigin = "*"
+		} else {
+			for _, o := range allowedOrigins {
+				if o == origin {
+					allowOrigin = origin
+					break
+				}
+			}
+		}
+		if allowOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-API-Key, X-Request-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")

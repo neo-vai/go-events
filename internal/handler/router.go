@@ -45,7 +45,7 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.StructuredLogger())
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 
 	// Apply global rate limiter
 	globalLimiter := middleware.NewRateLimiter(cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)

@@ -2,11 +2,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/account"
+	account_service "github.com/neo-vai/go-events/internal/service/account"
 )
 
 type AccountService interface {
@@ -57,7 +59,7 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 	valid, err := h.accountSvc.VerifyPassword(c, req.Login, req.Password)
 	if err != nil {
-		if err.Error() == "account is inactive" {
+		if errors.Is(err, account_service.ErrAccountInactive) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account is inactive"})
 			return
 		}
