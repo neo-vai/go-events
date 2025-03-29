@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/neo-vai/go-events/internal/validator"
-
+	_ "github.com/neo-vai/go-events/docs"
 	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler"
 	accountHandler "github.com/neo-vai/go-events/internal/handler/account"
@@ -20,16 +19,14 @@ import (
 	apikeyHandler "github.com/neo-vai/go-events/internal/handler/apikey"
 	authHandler "github.com/neo-vai/go-events/internal/handler/auth"
 	eventHandler "github.com/neo-vai/go-events/internal/handler/event"
-
 	account_repository_pg "github.com/neo-vai/go-events/internal/repository/account/postgres"
 	apikey_repository_pg "github.com/neo-vai/go-events/internal/repository/apikey/postgres"
+	"github.com/neo-vai/go-events/internal/repository/cache"
 	event_repository_pg "github.com/neo-vai/go-events/internal/repository/event/postgres"
-
 	account_service "github.com/neo-vai/go-events/internal/service/account"
 	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
-
-	_ "github.com/neo-vai/go-events/docs"
+	"github.com/neo-vai/go-events/internal/validator"
 )
 
 // @title           Event Tracking API
@@ -52,7 +49,6 @@ func main() {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
-	// Setup structured logging
 	logLevel := slog.LevelInfo
 	switch cfg.LogLevel {
 	case "debug":
@@ -70,6 +66,26 @@ func main() {
 		"port", cfg.Port,
 		"log_level", cfg.LogLevel,
 	)
+
+	// Connect to Redis
+	redisClient, err := cache.NewRedisClient(
+		cfg.RedisURL,
+		cfg.RedisPassword,
+		cfg.RedisDB,
+		cfg.RedisMaxRetries,
+		cfg.RedisPoolSize,
+		cfg.RedisMinIdleConns,
+		cfg.RedisDialTimeout,
+		cfg.RedisReadTimeout,
+		cfg.RedisWriteTimeout,
+		cfg.RedisPoolTimeout,
+		cfg.RedisIdleTimeout,
+	)
+	if err != nil {
+		logger.Error("failed to initialize Redis client", "error", err)
+		os.Exit(1)
+	}
+	defer redisClient.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -99,7 +115,10 @@ func main() {
 
 	passwordHasher := account_service.NewBcryptHasher(cfg.BcryptCost)
 	accountService := account_service.NewAccountService(accountRepo, passwordHasher)
-	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo, cfg.APIKeyLength)
+
+	apiKeyCache := cache.NewAPIKeyCache(redisClient.Client())
+	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo, apiKeyCache, cfg.APIKeyLength)
+
 	eventService := event_service.NewEventService(eventRepo, apiKeyRepo)
 
 	accountH := accountHandler.NewHandler(accountService)
@@ -116,7 +135,7 @@ func main() {
 		Event:   eventH,
 		Auth:    authH,
 		Admin:   adminH,
-	}, apiKeyService, accountService, cfg)
+	}, apiKeyService, accountService, cfg, redisClient.Client())
 
 	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		logger.Warn("failed to set trusted proxies", "error", err)
@@ -129,7 +148,6 @@ func main() {
 		WriteTimeout: cfg.HTTPTimeout,
 	}
 
-	// Register a shutdown hook to log that shutdown has been initiated.
 	srv.RegisterOnShutdown(func() {
 		logger.Info("server shutdown initiated, waiting for active connections to finish")
 	})
@@ -147,7 +165,6 @@ func main() {
 	<-quit
 	logger.Info("shutting down server...")
 
-	// Increased timeout to 30 seconds to allow active requests to finish gracefully.
 	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()
 	if err := srv.Shutdown(ctxShutdown); err != nil {

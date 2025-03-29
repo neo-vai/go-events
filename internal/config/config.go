@@ -17,6 +17,18 @@ type Config struct {
 	DatabaseURL     string
 	DatabaseTestURL string
 
+	RedisURL          string
+	RedisPassword     string
+	RedisDB           int
+	RedisMaxRetries   int
+	RedisPoolSize     int
+	RedisMinIdleConns int
+	RedisDialTimeout  time.Duration
+	RedisReadTimeout  time.Duration
+	RedisWriteTimeout time.Duration
+	RedisPoolTimeout  time.Duration
+	RedisIdleTimeout  time.Duration
+
 	JWTSecret       string
 	JWTExpiresHours int
 
@@ -56,6 +68,19 @@ func Load() (*Config, error) {
 	}
 	cfg.DatabaseTestURL = os.Getenv("DATABASE_URL_TEST")
 
+	cfg.RedisURL = getEnv("REDIS_URL", "localhost:6379")
+	cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
+	cfg.RedisDB = getEnvInt("REDIS_DB", 0)
+	cfg.RedisMaxRetries = getEnvInt("REDIS_MAX_RETRIES", 3)
+	cfg.RedisPoolSize = getEnvInt("REDIS_POOL_SIZE", 10)
+	cfg.RedisMinIdleConns = getEnvInt("REDIS_MIN_IDLE_CONNS", 5)
+
+	cfg.RedisDialTimeout = getEnvDuration("REDIS_DIAL_TIMEOUT", 5*time.Second)
+	cfg.RedisReadTimeout = getEnvDuration("REDIS_READ_TIMEOUT", 3*time.Second)
+	cfg.RedisWriteTimeout = getEnvDuration("REDIS_WRITE_TIMEOUT", 3*time.Second)
+	cfg.RedisPoolTimeout = getEnvDuration("REDIS_POOL_TIMEOUT", 4*time.Second)
+	cfg.RedisIdleTimeout = getEnvDuration("REDIS_IDLE_TIMEOUT", 300*time.Second)
+
 	cfg.JWTSecret = os.Getenv("JWT_SECRET")
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
@@ -86,7 +111,6 @@ func Load() (*Config, error) {
 
 	corsOrigins := getEnv("CORS_ALLOWED_ORIGINS", "")
 	if corsOrigins == "" {
-		// In production, it's safer to have an explicit list; for dev, allow all.
 		if cfg.Env == "development" {
 			cfg.CORSAllowedOrigins = []string{"*"}
 		} else {
@@ -108,22 +132,15 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	// JWT secret strength
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters long")
 	}
-
-	// API key length
 	if c.APIKeyLength < 16 {
 		return fmt.Errorf("API_KEY_LENGTH must be at least 16")
 	}
-
-	// Bcrypt cost range
 	if c.BcryptCost < 4 || c.BcryptCost > 31 {
 		return fmt.Errorf("BCRYPT_COST must be between 4 and 31")
 	}
-
-	// Port validation
 	portNum, err := strconv.Atoi(c.Port)
 	if err != nil || portNum < 1 || portNum > 65535 {
 		return fmt.Errorf("PORT must be a valid port number (1-65535)")
@@ -131,18 +148,9 @@ func (c *Config) validate() error {
 	if c.Env != "development" && portNum < 1024 {
 		return fmt.Errorf("PORT should be >= 1024 for non-root user")
 	}
-
-	// Database URL format
 	if _, err := url.Parse(c.DatabaseURL); err != nil {
 		return fmt.Errorf("DATABASE_URL is not a valid URL: %w", err)
 	}
-
-	// Ensure at least one trusted proxy is set if not empty (optional)
-	if len(c.TrustedProxies) == 0 && c.Env != "development" {
-		// This is not strictly required, but recommended
-		// We'll just warn via log (but we don't have logger here; we'll skip)
-	}
-
 	return nil
 }
 
@@ -157,6 +165,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
 		}
 	}
 	return defaultValue

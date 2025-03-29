@@ -7,12 +7,14 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/neo-vai/go-events/internal/model/apikey"
 	"github.com/neo-vai/go-events/internal/repository/apikey/postgres"
+	"github.com/neo-vai/go-events/internal/repository/cache"
 )
 
 var (
@@ -36,12 +38,14 @@ type APIKeyRepository interface {
 
 type APIKeyService struct {
 	repo         APIKeyRepository
+	cache        cache.APIKeyCache
 	apiKeyLength int
 }
 
-func NewAPIKeyService(repo APIKeyRepository, apiKeyLength int) *APIKeyService {
+func NewAPIKeyService(repo APIKeyRepository, cache cache.APIKeyCache, apiKeyLength int) *APIKeyService {
 	return &APIKeyService{
 		repo:         repo,
+		cache:        cache,
 		apiKeyLength: apiKeyLength,
 	}
 }
@@ -118,6 +122,12 @@ func (s *APIKeyService) UpdateActive(ctx context.Context, idStr string, active b
 	if errors.Is(err, postgres.ErrNoRowsAffected) {
 		return ErrKeyNotFound
 	}
+	if err == nil {
+		// Invalidate cache for this key hash
+		if delErr := s.cache.Delete(ctx, key.KeyHash); delErr != nil {
+			slog.Warn("failed to invalidate API key cache", "key_hash", key.KeyHash, "error", delErr)
+		}
+	}
 	return err
 }
 
@@ -126,9 +136,19 @@ func (s *APIKeyService) Delete(ctx context.Context, idStr string) error {
 	if err != nil {
 		return ErrInvalidKeyID
 	}
+	// Retrieve key to get its hash for cache invalidation
+	key, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return ErrKeyNotFound
+	}
 	err = s.repo.Delete(ctx, id)
 	if errors.Is(err, postgres.ErrNoRowsAffected) {
 		return ErrKeyNotFound
+	}
+	if err == nil {
+		if delErr := s.cache.Delete(ctx, key.KeyHash); delErr != nil {
+			slog.Warn("failed to invalidate API key cache after delete", "key_hash", key.KeyHash, "error", delErr)
+		}
 	}
 	return err
 }
@@ -146,18 +166,48 @@ func (s *APIKeyService) ListByAccount(ctx context.Context, accountIDStr string) 
 }
 
 // ValidateAPIKey verifies the plain API key and returns accountID, role, and apiKeyID.
+// It first checks the cache; on miss it queries the database and populates the cache.
 func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (accountID string, role string, apiKeyID string, err error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(plainKey))
 	hash := hex.EncodeToString(hasher.Sum(nil))
 
+	// Try cache
+	if cached, cacheErr := s.cache.Get(ctx, hash); cacheErr == nil && cached != nil {
+		if !cached.Active {
+			return "", "", "", ErrInactiveKey
+		}
+		return cached.AccountID, "", cached.APIKeyID, nil
+	} else if cacheErr != nil {
+		slog.Warn("cache get error for API key", "error", cacheErr)
+	}
+
+	// Fallback to database
 	apiKey, err := s.repo.GetByKeyHash(ctx, hash)
 	if err != nil {
 		return "", "", "", ErrKeyNotFound
 	}
 	if !apiKey.Active {
+		// Also store inactive in cache to prevent repeated DB lookups
+		cached := &cache.CachedAPIKey{
+			AccountID: apiKey.AccountID.String(),
+			Active:    false,
+			APIKeyID:  apiKey.ID.String(),
+		}
+		_ = s.cache.Set(ctx, hash, cached)
 		return "", "", "", ErrInactiveKey
 	}
+
+	// Populate cache
+	cached := &cache.CachedAPIKey{
+		AccountID: apiKey.AccountID.String(),
+		Active:    apiKey.Active,
+		APIKeyID:  apiKey.ID.String(),
+	}
+	if setErr := s.cache.Set(ctx, hash, cached); setErr != nil {
+		slog.Warn("failed to cache API key", "key_hash", hash, "error", setErr)
+	}
+
 	return apiKey.AccountID.String(), "", apiKey.ID.String(), nil
 }
 

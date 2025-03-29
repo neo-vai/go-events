@@ -11,6 +11,7 @@ import (
 	"github.com/neo-vai/go-events/internal/middleware"
 	account_service "github.com/neo-vai/go-events/internal/service/account"
 	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
+	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -39,29 +40,29 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 	}
 }
 
-func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService, cfg *config.Config) *gin.Engine {
+func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService, cfg *config.Config, rdb *redis.Client) *gin.Engine {
 	r := gin.New()
 	// Global middleware
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
-	r.Use(middleware.ValidationErrorHandler()) // intercept validation errors
+	r.Use(middleware.ValidationErrorHandler())
 
-	// Apply global rate limiter
-	globalLimiter := middleware.NewRateLimiter(cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
+	// Global Redis rate limiter
+	globalLimiter := middleware.GlobalRedisRateLimiter(rdb, cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
 	r.Use(globalLimiter)
 
-	// Health check (no auth, but rate limited globally)
+	// Health check (no auth)
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
 	api := r.Group("/api/v1")
 	{
-		// Public routes with stricter rate limit on login
-		loginLimiter := middleware.NewRateLimiter(cfg.RateLimitLogin.Requests, cfg.RateLimitLogin.Per)
-		api.POST("/accounts", h.Account.CreateAccount) // account creation also uses global limiter (already applied)
+		// Public routes with stricter Redis rate limiter on login
+		loginLimiter := middleware.LoginRedisRateLimiter(rdb, cfg.RateLimitLogin.Requests, cfg.RateLimitLogin.Per)
+		api.POST("/accounts", h.Account.CreateAccount)
 		api.POST("/login", loginLimiter, h.Auth.Login)
 
 		// Protected routes (JWT or API Key)

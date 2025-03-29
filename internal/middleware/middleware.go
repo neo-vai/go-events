@@ -4,14 +4,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"golang.org/x/time/rate"
 )
 
 type contextKey string
@@ -153,31 +151,6 @@ func StructuredLogger() gin.HandlerFunc {
 	}
 }
 
-// NewRateLimiter creates a rate limiter middleware with configurable requests per duration.
-func NewRateLimiter(requests int, per time.Duration) gin.HandlerFunc {
-	var (
-		limiters = make(map[string]*rate.Limiter)
-		mu       sync.RWMutex
-	)
-	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		mu.RLock()
-		limiter, exists := limiters[ip]
-		mu.RUnlock()
-		if !exists {
-			mu.Lock()
-			limiter = rate.NewLimiter(rate.Every(per/time.Duration(requests)), requests)
-			limiters[ip] = limiter
-			mu.Unlock()
-		}
-		if !limiter.Allow() {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
-			return
-		}
-		c.Next()
-	}
-}
-
 // CORS middleware with configurable allowed origins.
 func CORS(allowedOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -185,10 +158,8 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		allowOrigin := ""
 		allowCredentials := false
 
-		// Determine if we should allow the origin and credentials.
 		if len(allowedOrigins) == 0 || (len(allowedOrigins) == 1 && allowedOrigins[0] == "*") {
 			allowOrigin = "*"
-			// Credentials cannot be true when origin is "*".
 			allowCredentials = false
 		} else {
 			for _, o := range allowedOrigins {
@@ -270,7 +241,6 @@ func ValidationErrorHandler() gin.HandlerFunc {
 					})
 				}
 			} else {
-				// For non-validation errors, keep original behavior
 				return
 			}
 		}
