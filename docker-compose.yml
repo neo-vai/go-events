@@ -10,6 +10,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      nats:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    deploy:
+      replicas: 2
 
   db:
     image: postgres:18.3-alpine3.23
@@ -40,6 +56,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    command: "-js"
+    ports:
+      - "4222:4222"
 
   nginx:
     image: nginx:1.29.8-alpine

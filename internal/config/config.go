@@ -48,6 +48,11 @@ type Config struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+
+	// Broker configuration
+	BrokerURL              string
+	BrokerSubject          string
+	BrokerJetStreamEnabled bool
 }
 
 type RequestsPerDuration struct {
@@ -125,6 +130,11 @@ func Load() (*Config, error) {
 	cfg.DBMaxConnLifetime = time.Duration(getEnvInt("DB_MAX_CONN_LIFETIME_SEC", 3600)) * time.Second
 	cfg.DBMaxConnIdleTime = time.Duration(getEnvInt("DB_MAX_CONN_IDLE_TIME_SEC", 1800)) * time.Second
 
+	// Broker configuration
+	cfg.BrokerURL = getEnv("BROKER_URL", "nats://localhost:4222")
+	cfg.BrokerSubject = getEnv("BROKER_SUBJECT", "events")
+	cfg.BrokerJetStreamEnabled = getEnvBool("BROKER_JETSTREAM_ENABLED", false)
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -151,6 +161,11 @@ func (c *Config) validate() error {
 	if _, err := url.Parse(c.DatabaseURL); err != nil {
 		return fmt.Errorf("DATABASE_URL is not a valid URL: %w", err)
 	}
+	if c.BrokerURL != "" {
+		if _, err := url.Parse(c.BrokerURL); err != nil {
+			return fmt.Errorf("BROKER_URL is not a valid URL: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -165,6 +180,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if val := os.Getenv(key); val != "" {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
 		}
 	}
 	return defaultValue

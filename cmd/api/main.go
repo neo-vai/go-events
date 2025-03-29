@@ -12,13 +12,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/neo-vai/go-events/docs"
+	"github.com/neo-vai/go-events/internal/broker"
 	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler"
 	accountHandler "github.com/neo-vai/go-events/internal/handler/account"
 	adminHandler "github.com/neo-vai/go-events/internal/handler/admin"
 	apikeyHandler "github.com/neo-vai/go-events/internal/handler/apikey"
 	authHandler "github.com/neo-vai/go-events/internal/handler/auth"
-	eventHandler "github.com/neo-vai/go-events/internal/handler/event"
 	account_repository_pg "github.com/neo-vai/go-events/internal/repository/account/postgres"
 	apikey_repository_pg "github.com/neo-vai/go-events/internal/repository/apikey/postgres"
 	"github.com/neo-vai/go-events/internal/repository/cache"
@@ -109,6 +109,16 @@ func main() {
 
 	validator.RegisterCustomValidators()
 
+	// Initialize broker client and publisher
+	brokerClient, err := broker.NewNATSClient(cfg.BrokerURL, cfg.BrokerJetStreamEnabled)
+	if err != nil {
+		logger.Error("failed to connect to broker", "error", err)
+		os.Exit(1)
+	}
+	defer brokerClient.Close()
+
+	publisher := broker.NewNATSPublisher(brokerClient, cfg.BrokerSubject)
+
 	accountRepo := account_repository_pg.NewAccountRepositoryPG(pool)
 	apiKeyRepo := apikey_repository_pg.NewAPIKeyRepositoryPG(pool)
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
@@ -123,7 +133,6 @@ func main() {
 
 	accountH := accountHandler.NewHandler(accountService)
 	apiKeyH := apikeyHandler.NewHandler(apiKeyService)
-	eventH := eventHandler.NewHandler(eventService)
 	authH := authHandler.NewHandler(accountService, cfg.JWTSecret, cfg.JWTExpiresHours)
 
 	statsSvc := &simpleStatsService{db: pool}
@@ -132,10 +141,9 @@ func main() {
 	router := handler.NewRouter(handler.Handlers{
 		Account: accountH,
 		APIKey:  apiKeyH,
-		Event:   eventH,
 		Auth:    authH,
 		Admin:   adminH,
-	}, apiKeyService, accountService, cfg, redisClient.Client())
+	}, apiKeyService, accountService, eventService, cfg, redisClient.Client(), publisher)
 
 	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		logger.Warn("failed to set trusted proxies", "error", err)

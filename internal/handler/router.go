@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/neo-vai/go-events/internal/broker"
 	"github.com/neo-vai/go-events/internal/config"
 	"github.com/neo-vai/go-events/internal/handler/account"
 	"github.com/neo-vai/go-events/internal/handler/admin"
@@ -11,6 +12,7 @@ import (
 	"github.com/neo-vai/go-events/internal/middleware"
 	account_service "github.com/neo-vai/go-events/internal/service/account"
 	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
+	event_service "github.com/neo-vai/go-events/internal/service/event"
 	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -40,7 +42,15 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 	}
 }
 
-func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService, cfg *config.Config, rdb *redis.Client) *gin.Engine {
+func NewRouter(
+	h Handlers,
+	apiKeySvc *apikey_service.APIKeyService,
+	accountSvc *account_service.AccountService,
+	eventSvc *event_service.EventService,
+	cfg *config.Config,
+	rdb *redis.Client,
+	publisher broker.Publisher,
+) *gin.Engine {
 	r := gin.New()
 	// Global middleware (no rate limit yet)
 	r.Use(gin.Recovery())
@@ -58,6 +68,9 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 	// Apply global Redis rate limiter AFTER static/unprotected routes
 	globalLimiter := middleware.GlobalRedisRateLimiter(rdb, cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
 	r.Use(globalLimiter)
+
+	// Create event handler with publisher
+	eventHandler := event.NewHandler(eventSvc, publisher)
 
 	api := r.Group("/api/v1")
 	{
@@ -83,9 +96,9 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 				accountGroup.DELETE("/keys/:key_id", h.APIKey.DeleteAPIKey)
 			}
 
-			protected.POST("/events", h.Event.CreateEvent)
-			protected.GET("/events", h.Event.ListEvents)
-			protected.GET("/events/:id", h.Event.GetEvent)
+			protected.POST("/events", eventHandler.CreateEvent)
+			protected.GET("/events", eventHandler.ListEvents)
+			protected.GET("/events/:id", eventHandler.GetEvent)
 		}
 
 		// Admin routes (JWT only, admin role required)

@@ -5,26 +5,32 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/neo-vai/go-events/internal/broker"
 	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/event"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
 )
 
 type EventService interface {
-	CreateEvent(ctx context.Context, ev *event.Event) error
 	GetByID(ctx context.Context, id string) (*event.Event, error)
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
 	ListEventsPaginated(ctx context.Context, accountID string, page, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error)
 }
 
 type Handler struct {
-	service EventService
+	service   EventService
+	publisher broker.Publisher
 }
 
-func NewHandler(service EventService) *Handler {
-	return &Handler{service: service}
+func NewHandler(service EventService, publisher broker.Publisher) *Handler {
+	return &Handler{
+		service:   service,
+		publisher: publisher,
+	}
 }
 
 // CreateEvent godoc
@@ -34,7 +40,7 @@ func NewHandler(service EventService) *Handler {
 // @Accept       json
 // @Produce      json
 // @Param        body body CreateEventRequest true "Event data"
-// @Success      201 {object} EventResponse
+// @Success      202 {object} EventResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
@@ -63,17 +69,21 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	}
 
 	ev := &event.Event{
+		ID:        uuid.New().String(),
 		AccountID: authenticatedAccountID.(string),
 		Username:  req.Username,
 		APIKeyID:  apiKeyIDStr,
 		Name:      req.Name,
 		Payload:   req.Payload,
+		CreatedAt: time.Now(),
 	}
-	if err := h.service.CreateEvent(c, ev); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+
+	if err := h.publisher.PublishEvent(c, ev); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to publish event"})
 		return
 	}
-	c.JSON(http.StatusCreated, ToEventResponse(ev))
+
+	c.JSON(http.StatusAccepted, ToEventResponse(ev))
 }
 
 // ListEvents godoc

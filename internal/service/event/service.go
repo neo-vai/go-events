@@ -31,7 +31,7 @@ type EventRepository interface {
 
 type EventService struct {
 	repo       EventRepository
-	apiKeyRepo apikeyRepo.APIKeyRepository
+	apiKeyRepo apikeyRepo.APIKeyRepository // optional, may be nil in worker context
 }
 
 func NewEventService(repo EventRepository, apiKeyRepo apikeyRepo.APIKeyRepository) *EventService {
@@ -42,8 +42,8 @@ func NewEventService(repo EventRepository, apiKeyRepo apikeyRepo.APIKeyRepositor
 }
 
 func (s *EventService) CreateEvent(ctx context.Context, ev *event.Event) error {
-	// Validate APIKeyID if provided
-	if ev.APIKeyID != "" {
+	// Validate APIKeyID if provided and apiKeyRepo is available
+	if ev.APIKeyID != "" && s.apiKeyRepo != nil {
 		keyID, err := uuid.Parse(ev.APIKeyID)
 		if err != nil {
 			return ErrInvalidAPIKey
@@ -60,15 +60,18 @@ func (s *EventService) CreateEvent(ctx context.Context, ev *event.Event) error {
 		}
 	}
 
-	ev.ID = uuid.New().String()
-	ev.CreatedAt = time.Now()
+	// If ID and CreatedAt are not set, generate them (for worker consumption)
+	if ev.ID == "" {
+		ev.ID = uuid.New().String()
+	}
+	if ev.CreatedAt.IsZero() {
+		ev.CreatedAt = time.Now()
+	}
+
 	err := s.repo.Create(ctx, ev)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		// If foreign key violation (account_id) – return original error,
-		// handler will respond with 500. More detailed errors can be added if needed.
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			// foreign key violation (account_id) - should not happen if auth is correct
 			return errors.New("invalid account")
 		}
 		return err
@@ -85,20 +88,11 @@ func (s *EventService) GetByID(ctx context.Context, id string) (*event.Event, er
 }
 
 // ListEvents is a legacy method for backward compatibility.
-// It returns all events matching the given filters without pagination.
-// For new development, use ListEventsPaginated.
 func (s *EventService) ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error) {
-	// Use paginated method with limit=0 to disable pagination.
 	events, _, err := s.ListEventsPaginated(ctx, accountID, 1, 0, "", "", username, apiKeyID, "")
 	return events, err
 }
 
-// ListEventsPaginated returns a paginated list of events with filtering and sorting capabilities.
-// accountID is mandatory and enforced from the authenticated context.
-// page and limit define pagination (page >= 1, limit > 0; if limit <= 0 pagination is disabled).
-// sort and order define ordering (e.g., "createdAt", "DESC").
-// username, apiKeyID, and searchQuery are optional filters.
-// Returns the slice of events, total count (when paginated), and error.
 func (s *EventService) ListEventsPaginated(
 	ctx context.Context,
 	accountID string,
@@ -109,17 +103,15 @@ func (s *EventService) ListEventsPaginated(
 	if page < 1 {
 		page = 1
 	}
-	// If limit <= 0, treat as "no pagination". We'll pass limit=0 to repository to skip LIMIT clause.
 	paginationEnabled := limit > 0
 	if !paginationEnabled {
 		limit = 0
 	}
 	if limit > 1000 {
-		limit = 1000 // protect against excessive requests
+		limit = 1000
 	}
 
 	filters := make(map[string]interface{})
-	// Mandatory filter: restrict to the authenticated account.
 	filters["account_id"] = accountID
 
 	if username != "" {
@@ -132,7 +124,6 @@ func (s *EventService) ListEventsPaginated(
 		filters["q"] = searchQuery
 	}
 
-	// Map frontend sort fields to DB columns.
 	sortMap := map[string]string{
 		"createdAt": "created_at",
 		"username":  "username",
@@ -150,9 +141,6 @@ func (s *EventService) ListEventsPaginated(
 	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
 }
 
-// ListAllEvents is an administrative endpoint that returns a paginated list of all events
-// with flexible filtering, sorting, and search capabilities.
-// It is intended for use by admin handlers.
 func (s *EventService) ListAllEvents(
 	ctx context.Context,
 	page, limit int,
@@ -169,7 +157,6 @@ func (s *EventService) ListAllEvents(
 		limit = 100
 	}
 
-	// Map frontend sort fields to DB columns (same as used by admin UI).
 	sortMap := map[string]string{
 		"createdAt": "created_at",
 		"username":  "username",
@@ -184,6 +171,5 @@ func (s *EventService) ListAllEvents(
 		order = "DESC"
 	}
 
-	// Delegate to repository's ListAll method.
 	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
 }
