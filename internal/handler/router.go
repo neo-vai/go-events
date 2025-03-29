@@ -42,21 +42,22 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 
 func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService, cfg *config.Config, rdb *redis.Client) *gin.Engine {
 	r := gin.New()
-	// Global middleware
+	// Global middleware (no rate limit yet)
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 	r.Use(middleware.ValidationErrorHandler())
 
-	// Global Redis rate limiter
-	globalLimiter := middleware.GlobalRedisRateLimiter(rdb, cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
-	r.Use(globalLimiter)
-
-	// Health check (no auth)
+	// Routes that should NOT be rate limited: health and swagger
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// Apply global Redis rate limiter AFTER static/unprotected routes
+	globalLimiter := middleware.GlobalRedisRateLimiter(rdb, cfg.RateLimitGlobal.Requests, cfg.RateLimitGlobal.Per)
+	r.Use(globalLimiter)
 
 	api := r.Group("/api/v1")
 	{
@@ -108,6 +109,5 @@ func NewRouter(h Handlers, apiKeySvc *apikey_service.APIKeyService, accountSvc *
 		}
 	}
 
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	return r
 }
