@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,7 +24,6 @@ type AccountService interface {
 type EventService interface {
 	GetByID(ctx context.Context, id string) (*event.Event, error)
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
-	// We need admin-specific listing with pagination; we'll extend later or use existing
 	ListAllEvents(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
 }
 
@@ -59,6 +59,20 @@ func NewHandler(
 	}
 }
 
+// setContentRangeHeader sets the Content-Range header for paginated responses.
+func setContentRangeHeader(c *gin.Context, resource string, page, limit int, total int64) {
+	start := (page - 1) * limit
+	end := start + limit - 1
+	if total == 0 {
+		c.Header("Content-Range", fmt.Sprintf("%s */0", resource))
+		return
+	}
+	if int64(end) >= total {
+		end = int(total) - 1
+	}
+	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, start, end, total))
+}
+
 // ---------- Accounts ----------
 
 // ListAccounts godoc
@@ -73,6 +87,7 @@ func NewHandler(
 // @Param role query string false "Filter by role"
 // @Param active query bool false "Filter by active status"
 // @Success 200 {array} AccountResponse
+// @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count "Total number of items"
 // @Security BearerAuth
 // @Router /admin/accounts [get]
@@ -81,7 +96,7 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "10"))
 	sort := c.DefaultQuery("_sort", "createdAt")
 	order := c.DefaultQuery("_order", "DESC")
-	// Map React-Admin sort fields to DB columns
+
 	sortMap := map[string]string{
 		"id":        "id",
 		"name":      "name",
@@ -123,6 +138,7 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 		resp[i] = ToAccountResponse(acc)
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+	setContentRangeHeader(c, "accounts", page, limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -167,12 +183,10 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 		Login: req.Login,
 		Role:  req.Role,
 	}
-	// AccountService.CreateAccount will set ID, hash password, etc.
 	err := h.accountSvc.CreateAccount(c, acc, req.Password)
 	if err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
-		// Map domain errors to appropriate status codes
 		if strings.Contains(msg, "already exists") {
 			status = http.StatusConflict
 		}
@@ -267,6 +281,7 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 // @Param account_id query string false "Filter by account ID"
 // @Param api_key_id query string false "Filter by API key ID"
 // @Success 200 {array} EventResponse
+// @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/events [get]
@@ -293,13 +308,12 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		return
 	}
 
-	// For simplicity, we'll just return events without account names.
-	// In a real implementation, we'd join or fetch separately.
 	resp := make([]EventResponse, len(events))
 	for i, ev := range events {
-		resp[i] = ToEventResponse(ev, "") // accountName empty for now
+		resp[i] = ToEventResponse(ev, "") // accountName omitted for simplicity
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+	setContentRangeHeader(c, "events", page, limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -335,6 +349,7 @@ func (h *Handler) GetEvent(c *gin.Context) {
 // @Param account_id query string false "Filter by account ID"
 // @Param active query bool false "Filter by active status"
 // @Success 200 {array} APIKeyResponse
+// @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/api-keys [get]
@@ -364,9 +379,10 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 
 	resp := make([]APIKeyResponse, len(keys))
 	for i, key := range keys {
-		resp[i] = ToAPIKeyResponse(key, "") // accountName empty for now
+		resp[i] = ToAPIKeyResponse(key, "")
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+	setContentRangeHeader(c, "api-keys", page, limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 

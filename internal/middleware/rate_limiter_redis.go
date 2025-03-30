@@ -10,6 +10,7 @@ import (
 )
 
 // RedisRateLimiter creates a rate limiter middleware that uses Redis to coordinate limits across instances.
+// The limit is defined as 'requests' allowed per 'per' duration.
 func RedisRateLimiter(rdb *redis.Client, requests int, per time.Duration, keyFunc func(c *gin.Context) string) gin.HandlerFunc {
 	limiter := redis_rate.NewLimiter(rdb)
 	return func(c *gin.Context) {
@@ -18,7 +19,14 @@ func RedisRateLimiter(rdb *redis.Client, requests int, per time.Duration, keyFun
 			c.Next()
 			return
 		}
-		res, err := limiter.Allow(c.Request.Context(), key, redis_rate.PerSecond(requests/int(per.Seconds())))
+
+		limit := redis_rate.Limit{
+			Rate:   requests,
+			Burst:  requests,
+			Period: per,
+		}
+
+		res, err := limiter.Allow(c.Request.Context(), key, limit)
 		if err != nil {
 			c.Next()
 			return
@@ -38,7 +46,7 @@ func GlobalRedisRateLimiter(rdb *redis.Client, requests int, per time.Duration) 
 	})
 }
 
-// LoginRedisRateLimiter uses client IP for login endpoint.
+// LoginRedisRateLimiter uses client IP for the login endpoint.
 func LoginRedisRateLimiter(rdb *redis.Client, requests int, per time.Duration) gin.HandlerFunc {
 	return RedisRateLimiter(rdb, requests, per, func(c *gin.Context) string {
 		return "rate:login:ip:" + c.ClientIP()

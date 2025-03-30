@@ -4,3 +4,5 @@ bin
 context.sh
 context.txt
 docs
+admin/node_modules
+admin/package-lock.json

@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -61,7 +62,6 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		return
 	}
 
-	// If authenticated via API key, the middleware has set apiKeyID in context.
 	apiKeyID, _ := c.Get(string(middleware.APIKeyIDKey))
 	var apiKeyIDStr string
 	if apiKeyID != nil {
@@ -90,6 +90,20 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 	})
 }
 
+// setContentRangeHeader sets the Content-Range header for paginated responses.
+func setContentRangeHeader(c *gin.Context, resource string, page, limit int, total int64) {
+	start := (page - 1) * limit
+	end := start + limit - 1
+	if total == 0 {
+		c.Header("Content-Range", fmt.Sprintf("%s */0", resource))
+		return
+	}
+	if int64(end) >= total {
+		end = int(total) - 1
+	}
+	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, start, end, total))
+}
+
 // ListEvents godoc
 // @Summary      List events with optional filters and pagination
 // @Tags         event
@@ -102,6 +116,7 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 // @Param        api_key_id  query string false "Filter by API key ID"
 // @Param        q           query string false "Search query (username, name, payload)"
 // @Success      200 {array} EventResponse
+// @Header       200 {string} Content-Range "resources start-end/total"
 // @Header       200 {integer} X-Total-Count "Total number of items (only when paginated)"
 // @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
@@ -116,15 +131,12 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	}
 	accountID := authenticatedAccountID.(string)
 
-	// Parse pagination parameters.
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
 
-	// Parse sorting.
 	sort := c.DefaultQuery("sort", "createdAt")
 	order := c.DefaultQuery("order", "DESC")
 
-	// Parse filters.
 	username := c.Query("user")
 	apiKeyID := c.Query("api_key_id")
 	searchQuery := c.Query("q")
@@ -150,9 +162,9 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		resp[i] = ToEventResponse(ev)
 	}
 
-	// Set X-Total-Count header only when pagination is enabled.
 	if limit > 0 {
 		c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+		setContentRangeHeader(c, "events", page, limit, total)
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -171,7 +183,6 @@ func (h *Handler) ListEvents(c *gin.Context) {
 // @Security     ApiKeyAuth
 // @Router       /events/{id} [get]
 func (h *Handler) GetEvent(c *gin.Context) {
-	// Check authentication first
 	authenticatedAccountID, exists := c.Get(string(middleware.AccountIDKey))
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -189,7 +200,6 @@ func (h *Handler) GetEvent(c *gin.Context) {
 		return
 	}
 
-	// Additional check: event must belong to the authenticated account
 	if ev.AccountID != authenticatedAccountID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 		return
