@@ -40,7 +40,7 @@ func NewHandler(service EventService, publisher broker.Publisher) *Handler {
 // @Accept       json
 // @Produce      json
 // @Param        body body CreateEventRequest true "Event data"
-// @Success      202 {object} EventResponse
+// @Success      202 {object} map[string]string
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
@@ -83,7 +83,11 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, ToEventResponse(ev))
+	c.Header("Location", "/api/v1/events/"+ev.ID)
+	c.JSON(http.StatusAccepted, gin.H{
+		"id":     ev.ID,
+		"status": "queued",
+	})
 }
 
 // ListEvents godoc

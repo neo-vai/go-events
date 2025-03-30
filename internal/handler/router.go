@@ -96,17 +96,16 @@ func NewRouter(
 			accountGetter,
 		))
 		{
-			accountGroup := protected.Group("/accounts/:id")
-			accountGroup.Use(middleware.OwnerCheck())
+			accountGroup := protected.Group("/account")
 			{
-				accountGroup.GET("", h.Account.GetAccount)
-				accountGroup.PUT("", h.Account.UpdateAccount)
-				accountGroup.DELETE("", h.Account.DeleteAccount)
+				accountGroup.GET("", h.Account.GetCurrentAccount)
+				accountGroup.PATCH("", h.Account.UpdateCurrentAccount)
+				accountGroup.DELETE("", h.Account.DeleteCurrentAccount)
 
-				accountGroup.POST("/keys", h.APIKey.GenerateAPIKey)
-				accountGroup.GET("/keys", h.APIKey.ListAPIKeys)
-				accountGroup.PATCH("/keys/:key_id", h.APIKey.UpdateAPIKeyActive)
-				accountGroup.DELETE("/keys/:key_id", h.APIKey.DeleteAPIKey)
+				accountGroup.POST("/keys", h.APIKey.GenerateAPIKeyForCurrentAccount)
+				accountGroup.GET("/keys", h.APIKey.ListAPIKeysForCurrentAccount)
+				accountGroup.PATCH("/keys/:key_id", h.APIKey.UpdateAPIKeyActiveForCurrentAccount)
+				accountGroup.DELETE("/keys/:key_id", h.APIKey.DeleteAPIKeyForCurrentAccount)
 			}
 
 			protected.POST("/events", eventHandler.CreateEvent)

@@ -37,7 +37,7 @@ type LoginRequest struct {
 
 type LoginResponse struct {
 	Token     string `json:"token"`
-	AccountID string `json:"account_id"`
+	AccountID string `json:"accountId"`
 }
 
 // Login godoc

@@ -6,7 +6,6 @@ import (
 
 type APIKeyResponse struct {
 	ID        string `json:"id"`
-	AccountID string `json:"accountID"`
 	Key       string `json:"key,omitempty"`       // only present on creation
 	KeyPrefix string `json:"keyPrefix,omitempty"` // first 8 chars, always present
 	Active    bool   `json:"active"`
@@ -20,7 +19,6 @@ type UpdateAPIKeyActiveRequest struct {
 func ToAPIKeyResponse(key *apikey.APIKey, includeFullKey bool) APIKeyResponse {
 	resp := APIKeyResponse{
 		ID:        key.ID.String(),
-		AccountID: key.AccountID.String(),
 		Active:    key.Active,
 		CreatedAt: key.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/account"
 	account_service "github.com/neo-vai/go-events/internal/service/account"
 )
@@ -72,20 +73,25 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 	c.JSON(http.StatusCreated, ToAccountResponse(acc))
 }
 
-// GetAccount godoc
-// @Summary      Get account by ID
+// GetCurrentAccount godoc
+// @Summary      Get current account details
 // @Tags         account
 // @Produce      json
-// @Param        id path string true "Account ID"
 // @Success      200 {object} AccountResponse
+// @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
-// @Router       /accounts/{id} [get]
-func (h *Handler) GetAccount(c *gin.Context) {
-	id := c.Param("id")
-	acc, err := h.service.GetByID(c, id)
+// @Router       /account [get]
+func (h *Handler) GetCurrentAccount(c *gin.Context) {
+	accountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	acc, err := h.service.GetByID(c, accountID.(string))
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := err.Error()
@@ -100,23 +106,28 @@ func (h *Handler) GetAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, ToAccountResponse(acc))
 }
 
-// UpdateAccount godoc
-// @Summary      Update account
+// UpdateCurrentAccount godoc
+// @Summary      Update current account
 // @Tags         account
 // @Accept       json
 // @Produce      json
-// @Param        id path string true "Account ID"
 // @Param        body body UpdateAccountRequest true "Fields to update"
 // @Success      200 {object} AccountResponse
 // @Failure      400 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      409 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
-// @Router       /accounts/{id} [put]
-func (h *Handler) UpdateAccount(c *gin.Context) {
-	id := c.Param("id")
+// @Router       /account [patch]
+func (h *Handler) UpdateCurrentAccount(c *gin.Context) {
+	accountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	var req UpdateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(err)
@@ -124,7 +135,7 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 		return
 	}
 
-	existing, err := h.service.GetByID(c, id)
+	existing, err := h.service.GetByID(c, accountID.(string))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 		return
@@ -159,20 +170,25 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, ToAccountResponse(existing))
 }
 
-// DeleteAccount godoc
-// @Summary      Delete account
+// DeleteCurrentAccount godoc
+// @Summary      Delete current account
 // @Tags         account
 // @Produce      json
-// @Param        id path string true "Account ID"
 // @Success      204 "No Content"
+// @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
-// @Router       /accounts/{id} [delete]
-func (h *Handler) DeleteAccount(c *gin.Context) {
-	id := c.Param("id")
-	err := h.service.DeleteAccount(c, id)
+// @Router       /account [delete]
+func (h *Handler) DeleteCurrentAccount(c *gin.Context) {
+	accountID, exists := c.Get(string(middleware.AccountIDKey))
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	err := h.service.DeleteAccount(c, accountID.(string))
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := err.Error()

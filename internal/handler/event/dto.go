@@ -10,7 +10,6 @@ type CreateEventRequest struct {
 
 type EventResponse struct {
 	ID        string `json:"id"`
-	AccountID string `json:"accountId"`
 	Username  string `json:"username"`
 	APIKeyID  string `json:"apiKeyId,omitempty"`
 	Name      string `json:"name"`
@@ -21,7 +20,6 @@ type EventResponse struct {
 func ToEventResponse(ev *event.Event) EventResponse {
 	return EventResponse{
 		ID:        ev.ID,
-		AccountID: ev.AccountID,
 		Username:  ev.Username,
 		APIKeyID:  ev.APIKeyID,
 		Name:      ev.Name,
