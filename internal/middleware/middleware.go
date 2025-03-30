@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/neo-vai/go-events/internal/model/account"
 )
 
 type contextKey string
@@ -19,6 +20,9 @@ const (
 	RoleKey      contextKey = "role"
 	APIKeyIDKey  contextKey = "apiKeyID"
 )
+
+// AccountGetter retrieves an account by its ID. Used for active status check.
+type AccountGetter func(ctx *gin.Context, accountID string) (*account.Account, error)
 
 // JWTAuth middleware (kept for backward compatibility, but not used in router now).
 func JWTAuth(jwtSecret string) gin.HandlerFunc {
@@ -45,38 +49,68 @@ func JWTAuth(jwtSecret string) gin.HandlerFunc {
 }
 
 // UniversalAuth tries JWT first if Authorization header is present, otherwise falls back to API key.
-// It requires jwtSecret for JWT validation.
-func UniversalAuth(apiKeyValidator func(ctx *gin.Context, key string) (accountID, role, apiKeyID string, err error), jwtSecret string) gin.HandlerFunc {
+// It requires jwtSecret for JWT validation and an accountGetter to verify the account is active.
+func UniversalAuth(
+	apiKeyValidator func(ctx *gin.Context, key string) (accountID, role, apiKeyID string, err error),
+	jwtSecret string,
+	accountGetter AccountGetter,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var accountID, role, apiKeyID string
+		var err error
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
-				claims, err := ValidateJWT(parts[1], jwtSecret)
-				if err == nil {
-					c.Set(string(AccountIDKey), claims.AccountID)
-					c.Set(string(RoleKey), claims.Role)
-					c.Next()
+				claims, jwtErr := ValidateJWT(parts[1], jwtSecret)
+				if jwtErr == nil {
+					accountID = claims.AccountID
+					role = claims.Role
+				} else {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			}
+		}
+
+		if accountID == "" {
+			apiKey := c.GetHeader("X-API-Key")
+			if apiKey != "" && apiKeyValidator != nil {
+				accountID, role, apiKeyID, err = apiKeyValidator(c, apiKey)
+				if err != nil || accountID == "" {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+					return
+				}
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 				return
 			}
 		}
 
-		apiKey := c.GetHeader("X-API-Key")
-		if apiKey != "" && apiKeyValidator != nil {
-			accountID, role, apiKeyID, err := apiKeyValidator(c, apiKey)
-			if err == nil && accountID != "" {
-				c.Set(string(AccountIDKey), accountID)
-				c.Set(string(RoleKey), role)
-				c.Set(string(APIKeyIDKey), apiKeyID)
-				c.Next()
+		// Verify the account exists and is active.
+		if accountGetter != nil {
+			acc, accErr := accountGetter(c, accountID)
+			if accErr != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "account not found"})
 				return
+			}
+			if !acc.Active {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "account is inactive"})
+				return
+			}
+			// Optionally update role from the fresh account data (if not set by JWT).
+			if role == "" {
+				role = acc.Role
 			}
 		}
 
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.Set(string(AccountIDKey), accountID)
+		c.Set(string(RoleKey), role)
+		if apiKeyID != "" {
+			c.Set(string(APIKeyIDKey), apiKeyID)
+		}
+		c.Next()
 	}
 }
 

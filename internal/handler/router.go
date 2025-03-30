@@ -10,6 +10,7 @@ import (
 	"github.com/neo-vai/go-events/internal/handler/auth"
 	"github.com/neo-vai/go-events/internal/handler/event"
 	"github.com/neo-vai/go-events/internal/middleware"
+	model_account "github.com/neo-vai/go-events/internal/model/account"
 	account_service "github.com/neo-vai/go-events/internal/service/account"
 	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
@@ -27,7 +28,7 @@ type Handlers struct {
 }
 
 // APIKeyValidatorFunc adapts apiKeyService.ValidateAPIKey to the signature expected by middleware.
-// It also fetches the account role from the database.
+// It also fetches the account role and checks account active status.
 func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *account_service.AccountService) func(ctx *gin.Context, key string) (string, string, string, error) {
 	return func(ctx *gin.Context, key string) (string, string, string, error) {
 		accountID, _, apiKeyID, err := apiKeySvc.ValidateAPIKey(ctx, key)
@@ -37,6 +38,9 @@ func APIKeyValidatorFunc(apiKeySvc *apikey_service.APIKeyService, accountSvc *ac
 		acc, err := accountSvc.GetByID(ctx, accountID)
 		if err != nil {
 			return "", "", "", err
+		}
+		if !acc.Active {
+			return "", "", "", account_service.ErrAccountInactive
 		}
 		return accountID, acc.Role, apiKeyID, nil
 	}
@@ -72,6 +76,11 @@ func NewRouter(
 	// Create event handler with publisher
 	eventHandler := event.NewHandler(eventSvc, publisher)
 
+	// Account getter for active check
+	accountGetter := func(ctx *gin.Context, accountID string) (*model_account.Account, error) {
+		return accountSvc.GetByID(ctx, accountID)
+	}
+
 	api := r.Group("/api/v1")
 	{
 		// Public routes with stricter Redis rate limiter on login
@@ -81,7 +90,11 @@ func NewRouter(
 
 		// Protected routes (JWT or API Key)
 		protected := api.Group("/")
-		protected.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc), cfg.JWTSecret))
+		protected.Use(middleware.UniversalAuth(
+			APIKeyValidatorFunc(apiKeySvc, accountSvc),
+			cfg.JWTSecret,
+			accountGetter,
+		))
 		{
 			accountGroup := protected.Group("/accounts/:id")
 			accountGroup.Use(middleware.OwnerCheck())
@@ -103,7 +116,14 @@ func NewRouter(
 
 		// Admin routes (JWT only, admin role required)
 		adminGroup := api.Group("/admin")
-		adminGroup.Use(middleware.UniversalAuth(APIKeyValidatorFunc(apiKeySvc, accountSvc), cfg.JWTSecret), middleware.RequireAdmin())
+		adminGroup.Use(
+			middleware.UniversalAuth(
+				APIKeyValidatorFunc(apiKeySvc, accountSvc),
+				cfg.JWTSecret,
+				accountGetter,
+			),
+			middleware.RequireAdmin(),
+		)
 		{
 			adminGroup.GET("/accounts", h.Admin.ListAccounts)
 			adminGroup.GET("/accounts/:id", h.Admin.GetAccount)
