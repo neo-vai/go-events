@@ -69,7 +69,6 @@ up:
 		echo "Admin panel already built. Skipping build."; \
 	fi
 	$(DOCKER_COMPOSE) up -d
-	@echo "Services started. Admin panel available at http://localhost/admin"
 
 .PHONY: down
 down:

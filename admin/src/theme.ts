@@ -1,17 +1,30 @@
-import { defaultTheme } from 'react-admin';
+// admin/src/theme.ts
 import { createTheme } from '@mui/material/styles';
 
-const muiTheme = createTheme({
+export const lightTheme = createTheme({
     palette: {
         mode: 'light',
         primary: {
-            main: '#1976d2',
+            main: '#6366f1',
+            light: '#818cf8',
+            dark: '#4f46e5',
+            contrastText: '#ffffff',
         },
         secondary: {
-            main: '#dc004e',
+            main: '#10b981',
+            light: '#34d399',
+            dark: '#059669',
+        },
+        error: {
+            main: '#f59e0b',
         },
         background: {
-            default: '#f9fafb',
+            default: '#f8fafc',
+            paper: '#ffffff',
+        },
+        text: {
+            primary: '#0f172a',
+            secondary: '#475569',
         },
     },
     typography: {
@@ -21,19 +34,22 @@ const muiTheme = createTheme({
     },
     shape: { borderRadius: 12 },
     components: {
+        MuiAppBar: {
+            styleOverrides: {
+                root: {
+                    backgroundColor: '#ffffff',
+                    boxShadow: '0px 1px 3px rgba(0,0,0,0.05)',
+                    borderBottom: '1px solid #e2e8f0',
+                    color: '#0f172a',
+                },
+            },
+        },
         MuiCard: {
             styleOverrides: {
                 root: {
                     borderRadius: 16,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
-                },
-            },
-        },
-        MuiPaper: {
-            styleOverrides: {
-                root: {
-                    borderRadius: 16,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                    boxShadow: '0px 1px 3px rgba(0,0,0,0.05)',
+                    border: '1px solid #e2e8f0',
                 },
             },
         },
@@ -42,61 +58,20 @@ const muiTheme = createTheme({
                 root: {
                     borderRadius: 8,
                     textTransform: 'none',
-                    fontWeight: 500,
                 },
             },
         },
-        MuiAppBar: {
-            styleOverrides: {
-                root: {
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                },
-            },
-        },
-        MuiDrawer: {
-            styleOverrides: {
-                paper: {
-                    borderRight: 'none',
-                    boxShadow: '2px 0 8px rgba(0,0,0,0.02)',
-                },
-            },
-        },
-    },
-});
-
-export const lightTheme = {
-    ...defaultTheme,
-    ...muiTheme,
-    components: {
-        ...defaultTheme.components,
-        ...muiTheme.components,
         RaMenuItemLink: {
             styleOverrides: {
                 root: {
                     borderRadius: 8,
                     margin: '4px 8px',
                     '&.RaMenuItemLink-active': {
-                        backgroundColor: 'rgba(25, 118, 210, 0.08)',
-                        borderLeft: '4px solid #1976d2',
-                    },
-                },
-            },
-        },
-        RaSidebar: {
-            styleOverrides: {
-                root: {
-                    backgroundColor: '#ffffff',
-                },
-            },
-        },
-        RaLayout: {
-            styleOverrides: {
-                root: {
-                    '& .RaLayout-content': {
-                        padding: '24px',
+                        backgroundColor: 'rgba(99, 102, 241, 0.08)',
+                        borderLeft: '3px solid #6366f1',
                     },
                 },
             },
         },
     },
-};
+});

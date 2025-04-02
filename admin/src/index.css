@@ -1,0 +1,27 @@
+.Mui-error,
+.MuiFormHelperText-root.Mui-error,
+.MuiInputBase-root.Mui-error .MuiOutlinedInput-notchedOutline {
+    border-color: #f59e0b !important;
+    color: #f59e0b !important;
+}
+.MuiButton-containedError {
+    background-color: #f59e0b !important;
+}
+.MuiAlert-standardError {
+    background-color: #fffbeb !important;
+    color: #b45309 !important;
+}
+
+.RaLayout-content {
+    margin-top: 64px !important;
+}
+
+.RaSidebar-paper {
+    top: 64px !important;
+    height: calc(100% - 64px) !important;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+}
