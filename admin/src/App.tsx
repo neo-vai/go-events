@@ -1,4 +1,4 @@
-import { Admin, Resource } from 'react-admin';
+import { Admin, Resource, Login } from 'react-admin';
 import { lightTheme } from './theme';
 import authProvider from './authProvider';
 import { dataProvider } from './dataProvider';
@@ -16,6 +16,8 @@ const App = () => (
         authProvider={authProvider}
         dataProvider={dataProvider}
         dashboard={Dashboard}
+        loginPage={Login}
+        requireAuth
     >
         <Resource
             name="accounts"

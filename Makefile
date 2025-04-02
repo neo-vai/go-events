@@ -1,6 +1,5 @@
 # Makefile for Event Tracker Service
 
-# Автоматическая загрузка .env файла
 ifneq (,$(wildcard ./.env))
     include .env
     export
@@ -8,13 +7,10 @@ endif
 
 APP_NAME := go-events
 DOCKER_COMPOSE := docker compose
-MIGRATE := migrate
-LINTER := ./bin/golangci-lint
-LINTER_VERSION := v1.54.2
-SWAG := swag
 
-# ==== Тестовая среда ====
-TEST_DB_CONTAINER := test-db
+export DOCKER_BUILDKIT := 1
+export COMPOSE_DOCKER_CLI_BUILD := 1
+
 TEST_DB_PORT := 5433
 TEST_DB_USER := postgres
 TEST_DB_PASSWORD := postgres
@@ -24,57 +20,56 @@ TEST_DB_URL := postgres://$(TEST_DB_USER):$(TEST_DB_PASSWORD)@localhost:$(TEST_D
 .PHONY: help
 help:
 	@echo "Available commands:"
-	@echo "  make install-tools   - Install all required tools"
-	@echo "  make install-linter  - Install golangci-lint"
-	@echo "  make install-swag    - Install swag for Swagger generation"
-	@echo "  make install-migrate - Install migrate"
-	@echo "  make swagger         - Generate Swagger documentation"
-	@echo "  make build           - Build Go binary"
-	@echo "  make run             - Run application locally"
-	@echo "  make up              - Start services with docker-compose"
-	@echo "  make up-logs         - Start services and follow logs"
-	@echo "  make down            - Stop services"
-	@echo "  make logs            - Follow logs of all services"
-	@echo "  make logs SERVICE=   - Follow logs of specific service (e.g., SERVICE=go-events)"
-	@echo "  make lint            - Run golangci-lint"
-	@echo "  make migrate-up      - Apply database migrations"
-	@echo "  make migrate-down    - Rollback migrations"
-	@echo "  make test            - Run all tests (with test database)"
-	@echo "  make test-only       - Run tests without restarting test database"
-	@echo "  make test-db-up      - Start test database container"
-	@echo "  make test-db-down    - Stop and remove test database container"
-	@echo "  make test-db-migrate - Apply migrations to test database"
+	@echo "  make admin-build   - Build admin panel static files"
+	@echo "  make rebuild-admin - Force rebuild admin panel"
+	@echo "  make build         - Build Go binaries (api + worker)"
+	@echo "  make build-api     - Build only API binary"
+	@echo "  make build-worker  - Build only worker binary"
+	@echo "  make clean         - Remove Go binaries"
+	@echo "  make up            - Start all services (auto-builds admin if missing)"
+	@echo "  make down          - Stop all services"
+	@echo "  make logs          - Follow logs of all services"
+	@echo "  make run           - Run API locally (without Docker)"
+	@echo "  make test          - Run all tests (with test database)"
+	@echo "  make migrate-up    - Apply database migrations"
+	@echo "  make migrate-down  - Rollback migrations"
 
-.PHONY: install-tools
-install-tools: install-linter install-swag install-migrate
+.PHONY: admin-build
+admin-build:
+	@echo "Building admin panel..."
+	cd admin && npm ci && npm run build
 
-.PHONY: install-linter
-install-linter:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s $(LINTER_VERSION)
+.PHONY: rebuild-admin
+rebuild-admin: admin-build
 
-.PHONY: install-swag
-install-swag:
-	go install github.com/swaggo/swag/cmd/swag@latest
+.PHONY: build-api
+build-api:
+	@echo "Building API binary..."
+	go build -o app ./cmd/api
 
-.PHONY: install-migrate
-install-migrate:
-	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-
-.PHONY: swagger
-swagger:
-	$(SWAG) init -g cmd/api/main.go --output docs/
+.PHONY: build-worker
+build-worker:
+	@echo "Building worker binary..."
+	go build -o worker ./cmd/worker
 
 .PHONY: build
-build:
-	go build -o bin/$(APP_NAME) ./cmd/api
+build: build-api build-worker
 
-.PHONY: run
-run:
-	go run ./cmd/api
+.PHONY: clean
+clean:
+	@echo "Removing Go binaries..."
+	rm -f app worker
 
 .PHONY: up
 up:
-	$(DOCKER_COMPOSE) up --build
+	@if [ ! -f admin/dist/index.html ]; then \
+		echo "Admin panel not built or missing. Building..."; \
+		$(MAKE) admin-build; \
+	else \
+		echo "Admin panel already built. Skipping build."; \
+	fi
+	$(DOCKER_COMPOSE) up -d
+	@echo "Services started. Admin panel available at http://localhost/admin"
 
 .PHONY: down
 down:
@@ -82,56 +77,32 @@ down:
 
 .PHONY: logs
 logs:
-	@if [ -z "$(SERVICE)" ]; then \
-		$(DOCKER_COMPOSE) logs -f; \
-	else \
-		$(DOCKER_COMPOSE) logs -f $(SERVICE); \
-	fi
+	$(DOCKER_COMPOSE) logs -f
 
-.PHONY: lint
-lint:
-	$(LINTER) run ./...
+.PHONY: run
+run:
+	go run ./cmd/api
+
+.PHONY: test
+test:
+	@echo "Starting test database..."
+	@docker compose -f docker-compose.test.yml up -d
+	@echo "Waiting for test database..."
+	@until docker compose -f docker-compose.test.yml exec test-db pg_isready -U $(TEST_DB_USER) -d $(TEST_DB_NAME); do sleep 1; done
+	@echo "Applying migrations to test database..."
+	@docker run --rm --network host -v $(PWD)/migrations:/migrations migrate/migrate \
+		-path=/migrations -database "$(TEST_DB_URL)" up
+	@echo "Running tests..."
+	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test -p 1 ./... -v
+	@echo "Stopping test database..."
+	@docker compose -f docker-compose.test.yml down -v
 
 .PHONY: migrate-up
 migrate-up:
 	@echo "Applying migrations..."
-	$(MIGRATE) -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" up
+	migrate -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" up
 
 .PHONY: migrate-down
 migrate-down:
 	@echo "Rolling back migrations..."
-	$(MIGRATE) -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" down
-
-.PHONY: test-db-up
-test-db-up:
-	@echo "Starting test database..."
-	@docker compose -f docker-compose.test.yml up -d
-	@echo "Waiting for test database to be ready..."
-	@until docker compose -f docker-compose.test.yml exec test-db pg_isready -U $(TEST_DB_USER) -d $(TEST_DB_NAME); do sleep 1; done
-
-.PHONY: test-db-down
-test-db-down:
-	@echo "Stopping and removing test database..."
-	@docker compose -f docker-compose.test.yml down -v
-
-.PHONY: test-db-migrate
-test-db-migrate: test-db-up
-	@echo "Applying migrations to test database..."
-	@docker run --rm --network host -v $(PWD)/migrations:/migrations migrate/migrate \
-		-path=/migrations -database "$(TEST_DB_URL)" up
-
-.PHONY: test
-test: test-db-migrate
-	@echo "Running tests..."
-	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test -p 1 ./... -v
-	@echo "Tests completed."
-
-.PHONY: test-only
-test-only:
-	@echo "Running tests (using existing test database)..."
-	@DATABASE_URL_TEST="$(TEST_DB_URL)" go test -p 1 ./... -v
-
-.PHONY: shell
-shell:
-	@echo "Loading environment from .env..."
-	@export $$(cat .env | xargs) && exec $$SHELL
+	migrate -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" down

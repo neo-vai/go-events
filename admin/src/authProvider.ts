@@ -14,29 +14,55 @@ const authProvider: AuthProvider = {
         const data = await response.json();
         localStorage.setItem('token', data.token);
         localStorage.setItem('accountId', data.accountId);
-        // After login, fetch current account to verify admin role
         const meResp = await fetch('/api/v1/account', {
             headers: { Authorization: `Bearer ${data.token}` },
         });
         if (!meResp.ok) {
             throw new Error('Failed to fetch account details');
         }
-        // The backend should provide role in response, but current /account doesn't return role.
-        // We trust that backend will reject non-admin on protected routes.
+        const account = await meResp.json();
+        if (account.role !== 'admin') {
+            throw new Error('Access denied: admin role required');
+        }
+        localStorage.setItem('role', account.role);
         return Promise.resolve();
     },
     logout: () => {
         localStorage.removeItem('token');
         localStorage.removeItem('accountId');
+        localStorage.removeItem('role');
         return Promise.resolve();
     },
-    checkAuth: () => {
-        return localStorage.getItem('token') ? Promise.resolve() : Promise.reject();
+    checkAuth: async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            return Promise.reject();
+        }
+        try {
+            const response = await fetch('/api/v1/account', {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!response.ok) {
+                throw new Error('Invalid token');
+            }
+            const account = await response.json();
+            if (account.role !== 'admin') {
+                throw new Error('Not admin');
+            }
+            return Promise.resolve();
+        } catch (error) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('accountId');
+            localStorage.removeItem('role');
+            return Promise.reject();
+        }
     },
     checkError: (error) => {
         const status = error.status;
         if (status === 401 || status === 403) {
             localStorage.removeItem('token');
+            localStorage.removeItem('accountId');
+            localStorage.removeItem('role');
             return Promise.reject();
         }
         return Promise.resolve();

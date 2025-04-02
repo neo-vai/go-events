@@ -63,14 +63,6 @@ services:
     ports:
       - "4222:4222"
 
-  admin-builder:
-    build:
-      context: ./admin
-      dockerfile: Dockerfile
-    volumes:
-      - admin_dist:/dist
-    command: ["echo", "Admin static files built"]
-
   nginx:
     image: nginx:1.29.8-alpine
     ports:
@@ -78,10 +70,9 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - admin_dist:/usr/share/nginx/html/admin:ro
+      - ./admin/dist:/usr/share/nginx/html/admin:ro
     depends_on:
       - go-events
-      - admin-builder
 
 volumes:
   db_data:

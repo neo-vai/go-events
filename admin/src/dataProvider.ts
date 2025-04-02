@@ -14,6 +14,4 @@ const baseDataProvider = simpleRestProvider('/api/v1/admin', httpClient);
 
 export const dataProvider: DataProvider = {
     ...baseDataProvider,
-    // Customize if needed, but simpleRestProvider works with our API conventions.
-    // React Admin expects 'id' field; our responses use 'id'.
-};
+}

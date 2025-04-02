@@ -20,6 +20,7 @@ type AccountResponse struct {
 	Name      string `json:"name"`
 	Email     string `json:"email"`
 	Login     string `json:"login"`
+	Role      string `json:"role"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -29,6 +30,7 @@ func ToAccountResponse(acc *account.Account) AccountResponse {
 		Name:      acc.Name,
 		Email:     acc.Email,
 		Login:     acc.Login,
+		Role:      acc.Role,
 		CreatedAt: acc.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
