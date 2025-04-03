@@ -8,13 +8,13 @@ import (
 	"github.com/neo-vai/go-events/internal/model/event"
 )
 
-// Account DTOs
+// AccountResponse is the admin view of an account.
 type AccountResponse struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	Active    bool   `json:"active"`
-	CreatedAt string `json:"createdAt"`
+	ID        string `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Email     string `json:"email" example:"user@example.com"`
+	Role      string `json:"role" example:"admin"`
+	Active    bool   `json:"active" example:"true"`
+	CreatedAt string `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
 func ToAccountResponse(acc *account.Account) AccountResponse {
@@ -27,27 +27,29 @@ func ToAccountResponse(acc *account.Account) AccountResponse {
 	}
 }
 
+// CreateAccountRequest is used by admins to create accounts.
 type CreateAccountRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,strongpassword"`
-	Role     string `json:"role" binding:"required,oneof=user admin"`
+	Email    string `json:"email" binding:"required,email" example:"newuser@example.com"`
+	Password string `json:"password" binding:"required,strongpassword" example:"Passw0rd!"`
+	Role     string `json:"role" binding:"required,oneof=user admin" example:"user"`
 }
 
+// UpdateAccountRequest allows admins to modify account fields.
 type UpdateAccountRequest struct {
-	Email  string `json:"email,omitempty" binding:"omitempty,email"`
-	Role   string `json:"role,omitempty" binding:"omitempty,oneof=user admin"`
-	Active *bool  `json:"active,omitempty"`
+	Email  string `json:"email,omitempty" binding:"omitempty,email" example:"updated@example.com"`
+	Role   string `json:"role,omitempty" binding:"omitempty,oneof=user admin" example:"admin"`
+	Active *bool  `json:"active,omitempty" example:"false"`
 }
 
-// Event DTOs
+// EventResponse is the admin view of an event.
 type EventResponse struct {
-	ID        string `json:"id"`
-	AccountID string `json:"accountId"`
-	Username  string `json:"username"`
-	APIKeyID  string `json:"apiKeyId"`
-	Name      string `json:"name"`
-	Payload   string `json:"payload"`
-	CreatedAt string `json:"createdAt"`
+	ID        string `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	AccountID string `json:"accountId" example:"550e8400-e29b-41d4-a716-446655440001"`
+	Username  string `json:"username" example:"john_doe"`
+	APIKeyID  string `json:"apiKeyId" example:"550e8400-e29b-41d4-a716-446655440002"`
+	Name      string `json:"name" example:"user_login"`
+	Payload   string `json:"payload" example:"{\"ip\":\"192.168.1.1\"}"`
+	CreatedAt string `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
 func ToEventResponse(ev *event.Event) EventResponse {
@@ -62,14 +64,14 @@ func ToEventResponse(ev *event.Event) EventResponse {
 	}
 }
 
-// APIKey DTOs
+// APIKeyResponse is the admin view of an API key.
 type APIKeyResponse struct {
-	ID          string `json:"id"`
-	AccountID   string `json:"accountId"`
-	AccountName string `json:"accountName,omitempty"`
-	KeyPrefix   string `json:"keyPrefix,omitempty"` // first 8 chars
-	Active      bool   `json:"active"`
-	CreatedAt   string `json:"createdAt"`
+	ID          string `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	AccountID   string `json:"accountId" example:"550e8400-e29b-41d4-a716-446655440001"`
+	AccountName string `json:"accountName,omitempty" example:"user@example.com"`
+	KeyPrefix   string `json:"keyPrefix,omitempty" example:"dGhpcy1p..."`
+	Active      bool   `json:"active" example:"true"`
+	CreatedAt   string `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
 func ToAPIKeyResponse(key *apikey.APIKey, accountName string) APIKeyResponse {
@@ -90,16 +92,17 @@ func ToAPIKeyResponse(key *apikey.APIKey, accountName string) APIKeyResponse {
 	return resp
 }
 
+// UpdateAPIKeyRequest is used to change active status.
 type UpdateAPIKeyRequest struct {
-	Active *bool `json:"active" binding:"required"`
+	Active *bool `json:"active" binding:"required" example:"false"`
 }
 
-// Stats DTO
+// StatsResponse contains system statistics.
 type StatsResponse struct {
-	TotalAccounts  int64 `json:"totalAccounts"`
-	ActiveAccounts int64 `json:"activeAccounts"`
-	TotalEvents    int64 `json:"totalEvents"`
-	EventsToday    int64 `json:"eventsToday"`
-	TotalAPIKeys   int64 `json:"totalApiKeys"`
-	ActiveAPIKeys  int64 `json:"activeApiKeys"`
+	TotalAccounts  int64 `json:"totalAccounts" example:"42"`
+	ActiveAccounts int64 `json:"activeAccounts" example:"38"`
+	TotalEvents    int64 `json:"totalEvents" example:"15243"`
+	EventsToday    int64 `json:"eventsToday" example:"512"`
+	TotalAPIKeys   int64 `json:"totalApiKeys" example:"75"`
+	ActiveAPIKeys  int64 `json:"activeApiKeys" example:"60"`
 }

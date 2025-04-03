@@ -36,13 +36,13 @@ func NewHandler(service EventService, publisher broker.Publisher) *Handler {
 }
 
 // CreateEvent godoc
-// @Summary      Create event
-// @Description  Creates a new event. If authenticated with an API key, the key ID is automatically associated.
+// @Summary      Create a new event (asynchronous)
+// @Description  Publishes an event to the message broker. The event will be processed asynchronously by workers. If authenticated with an API key, the key ID is automatically associated.
 // @Tags         event
 // @Accept       json
 // @Produce      json
 // @Param        body body CreateEventRequest true "Event data"
-// @Success      202 {object} map[string]string
+// @Success      202 {object} map[string]string "Returns event ID and status"
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
@@ -105,15 +105,15 @@ func setContentRangeHeader(c *gin.Context, resource string, offset, limit int, t
 }
 
 // ListEvents godoc
-// @Summary      List events with optional filters and pagination
-// @Description  Returns a paginated list of events for the authenticated account.
+// @Summary      List events with filters and pagination
+// @Description  Returns a paginated list of events for the authenticated account. Supports filtering by username, API key ID, and a free-text search query.
 // @Tags         event
 // @Produce      json
-// @Param        _start     query   int     false  "Start index (0-based)"
-// @Param        _end       query   int     false  "End index (exclusive)"
-// @Param        _sort      query   string  false  "Sort field (id, createdAt, username, name)"
-// @Param        _order     query   string  false  "Sort order (ASC, DESC)"
-// @Param        filter     query   string  false  "JSON filter: {q, username, api_key_id}"
+// @Param        _start     query   int     false  "Start index (0-based)" example(0)
+// @Param        _end       query   int     false  "End index (exclusive)" example(10)
+// @Param        _sort      query   string  false  "Sort field (id, createdAt, username, name)" example(createdAt)
+// @Param        _order     query   string  false  "Sort order (ASC, DESC)" example(DESC)
+// @Param        filter     query   string  false  "JSON filter: {q: string, username: string, api_key_id: string}" example({"q":"error"})
 // @Success      200        {array} EventResponse
 // @Header       200        {string} Content-Range "resources start-end/total"
 // @Header       200        {integer} X-Total-Count "Total number of items"
@@ -132,10 +132,9 @@ func (h *Handler) ListEvents(c *gin.Context) {
 
 	params, err := pagination.ParseReactAdminParams(c)
 	if err != nil {
-		return // error response already sent
+		return
 	}
 
-	// Extract filter fields from parsed filters
 	var username, apiKeyID, searchQuery string
 	if val, ok := params.Filters["username"].(string); ok {
 		username = val
@@ -174,7 +173,8 @@ func (h *Handler) ListEvents(c *gin.Context) {
 }
 
 // GetEvent godoc
-// @Summary      Get event by ID
+// @Summary      Get a single event by ID
+// @Description  Retrieves a specific event belonging to the authenticated account.
 // @Tags         event
 // @Produce      json
 // @Param        id path string true "Event ID"

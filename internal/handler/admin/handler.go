@@ -85,9 +85,9 @@ func setContentRangeHeader(c *gin.Context, resource string, offset, limit int, t
 // @Param _end query int false "End index (exclusive)"
 // @Param _sort query string false "Sort field (id, email, role, active, createdAt)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param filter query string false "JSON filter: {q, role, active}"
+// @Param filter query string false "JSON filter: {q: string, role: string, active: bool}"
 // @Success 200 {array} AccountResponse
-// @Header 200 {string} Content-Range "resources start-end/total"
+// @Header 200 {string} Content-Range "accounts start-end/total"
 // @Header 200 {integer} X-Total-Count "Total number of items"
 // @Security BearerAuth
 // @Router /admin/accounts [get]
@@ -97,7 +97,6 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 		return
 	}
 
-	// Map sort field names to database column names
 	sortMap := map[string]string{
 		"id":        "id",
 		"email":     "email",
@@ -259,9 +258,9 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 // @Param _end query int false "End index (exclusive)"
 // @Param _sort query string false "Sort field (id, createdAt, username, name)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param filter query string false "JSON filter: {q, account_id, api_key_id}"
+// @Param filter query string false "JSON filter: {q: string, account_id: string, api_key_id: string}"
 // @Success 200 {array} EventResponse
-// @Header 200 {string} Content-Range "resources start-end/total"
+// @Header 200 {string} Content-Range "events start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/events [get]
@@ -314,9 +313,9 @@ func (h *Handler) GetEvent(c *gin.Context) {
 // @Param _end query int false "End index (exclusive)"
 // @Param _sort query string false "Sort field (id, createdAt, active)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param filter query string false "JSON filter: {account_id, active}"
+// @Param filter query string false "JSON filter: {account_id: string, active: bool}"
 // @Success 200 {array} APIKeyResponse
-// @Header 200 {string} Content-Range "resources start-end/total"
+// @Header 200 {string} Content-Range "api-keys start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/api-keys [get]

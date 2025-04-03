@@ -28,15 +28,15 @@ func NewHandler(service APIKeyService) *Handler {
 }
 
 // GenerateAPIKeyForCurrentAccount godoc
-// @Summary      Generate API key for current account
-// @Description  Creates a new API key for the authenticated account. The full key is returned only once.
+// @Summary      Generate a new API key for current account
+// @Description  Creates a new API key for the authenticated account. The full key is returned only once in the response.
 // @Tags         apikey
 // @Produce      json
 // @Success      201 {object} APIKeyResponse
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Failure      409 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{} "API key already exists"
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
@@ -66,13 +66,12 @@ func (h *Handler) GenerateAPIKeyForCurrentAccount(c *gin.Context) {
 		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	// Return full key only on creation
 	c.JSON(http.StatusCreated, ToAPIKeyResponse(key, true))
 }
 
 // ListAPIKeysForCurrentAccount godoc
 // @Summary      List API keys for current account
-// @Description  Returns all API keys belonging to the authenticated account (only key prefixes).
+// @Description  Returns all API keys belonging to the authenticated account. Only key prefixes are included for security.
 // @Tags         apikey
 // @Produce      json
 // @Success      200 {array} APIKeyResponse
@@ -108,7 +107,8 @@ func (h *Handler) ListAPIKeysForCurrentAccount(c *gin.Context) {
 }
 
 // UpdateAPIKeyActiveForCurrentAccount godoc
-// @Summary      Activate / deactivate API key of current account
+// @Summary      Activate or deactivate an API key
+// @Description  Changes the active status of a specific API key belonging to the current account.
 // @Tags         apikey
 // @Accept       json
 // @Produce      json
@@ -171,7 +171,6 @@ func (h *Handler) UpdateAPIKeyActiveForCurrentAccount(c *gin.Context) {
 		c.JSON(status, gin.H{"error": message})
 		return
 	}
-	// Retrieve the updated key to return.
 	updatedKey, err := h.service.GetByID(c, keyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch updated key"})
@@ -181,7 +180,8 @@ func (h *Handler) UpdateAPIKeyActiveForCurrentAccount(c *gin.Context) {
 }
 
 // DeleteAPIKeyForCurrentAccount godoc
-// @Summary      Delete API key of current account
+// @Summary      Delete an API key
+// @Description  Permanently deletes the specified API key belonging to the current account.
 // @Tags         apikey
 // @Produce      json
 // @Param        key_id path string true "API Key ID"

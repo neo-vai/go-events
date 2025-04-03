@@ -28,15 +28,15 @@ func NewHandler(service AccountService) *Handler {
 }
 
 // CreateAccount godoc
-// @Summary      Create account
-// @Description  Creates a new account with hashed password
+// @Summary      Create a new account
+// @Description  Creates a new account with email and password. The account is created with role "user" and active status.
 // @Tags         account
 // @Accept       json
 // @Produce      json
 // @Param        body body CreateAccountRequest true "Account data"
 // @Success      201 {object} AccountResponse
 // @Failure      400 {object} map[string]interface{}
-// @Failure      409 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{} "Email already exists"
 // @Failure      500 {object} map[string]interface{}
 // @Router       /accounts [post]
 func (h *Handler) CreateAccount(c *gin.Context) {
@@ -69,6 +69,7 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 
 // GetCurrentAccount godoc
 // @Summary      Get current account details
+// @Description  Returns the account information for the currently authenticated user (JWT or API key).
 // @Tags         account
 // @Produce      json
 // @Success      200 {object} AccountResponse
@@ -102,6 +103,7 @@ func (h *Handler) GetCurrentAccount(c *gin.Context) {
 
 // UpdateCurrentAccount godoc
 // @Summary      Update current account
+// @Description  Updates the email of the currently authenticated account. Role and active status cannot be changed via this endpoint.
 // @Tags         account
 // @Accept       json
 // @Produce      json
@@ -110,7 +112,7 @@ func (h *Handler) GetCurrentAccount(c *gin.Context) {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      401 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Failure      409 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{} "Email already exists"
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
@@ -156,6 +158,7 @@ func (h *Handler) UpdateCurrentAccount(c *gin.Context) {
 
 // DeleteCurrentAccount godoc
 // @Summary      Delete current account
+// @Description  Permanently deletes the currently authenticated account and all associated data.
 // @Tags         account
 // @Produce      json
 // @Success      204 "No Content"

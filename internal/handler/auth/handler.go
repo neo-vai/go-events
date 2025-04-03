@@ -30,26 +30,30 @@ func NewHandler(accountSvc AccountService, jwtSecret string, jwtExpiresHours int
 	}
 }
 
+// LoginRequest contains the credentials for authentication.
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Email    string `json:"email" binding:"required,email" example:"user@example.com"`
+	Password string `json:"password" binding:"required" example:"Passw0rd!"`
 }
 
+// LoginResponse contains the JWT token and account ID.
 type LoginResponse struct {
-	Token     string `json:"token"`
-	AccountID string `json:"accountId"`
+	Token     string `json:"token" example:"eyJhbGciOiJIUzI1NiIs..."`
+	AccountID string `json:"accountId" example:"550e8400-e29b-41d4-a716-446655440000"`
 }
 
 // Login godoc
-// @Summary      Login and get JWT token
-// @Description  Authenticates user and returns JWT token
+// @Summary      Login and obtain JWT token
+// @Description  Authenticates a user with email and password, returning a JWT token for use in subsequent requests.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
 // @Param        body body LoginRequest true "Login credentials"
 // @Success      200 {object} LoginResponse
-// @Failure      401 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{} "Invalid credentials"
+// @Failure      403 {object} map[string]interface{} "Account is inactive"
+// @Failure      500 {object} map[string]interface{}
 // @Router       /login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
