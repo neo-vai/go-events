@@ -81,7 +81,7 @@ func setContentRangeHeader(c *gin.Context, resource string, offset, limit int, t
 // @Produce json
 // @Param _start query int false "Start index (0-based)"
 // @Param _end query int false "End index (exclusive)"
-// @Param _sort query string false "Sort field (id, name, email, login, role, active, createdAt)"
+// @Param _sort query string false "Sort field (id, email, role, active, createdAt)"
 // @Param _order query string false "Sort order (ASC/DESC)"
 // @Param filter query string false "JSON filter: {q, role, active}"
 // @Success 200 {array} AccountResponse
@@ -98,9 +98,7 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 	// Map sort field names to database column names
 	sortMap := map[string]string{
 		"id":        "id",
-		"name":      "name",
 		"email":     "email",
-		"login":     "login",
 		"role":      "role",
 		"active":    "active",
 		"createdAt": "created_at",
@@ -167,9 +165,7 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 	}
 
 	acc := &account.Account{
-		Name:  req.Name,
 		Email: req.Email,
-		Login: req.Login,
 		Role:  req.Role,
 	}
 	err := h.accountSvc.CreateAccount(c, acc, req.Password)
@@ -205,14 +201,8 @@ func (h *Handler) UpdateAccount(c *gin.Context) {
 	}
 
 	updates := make(map[string]interface{})
-	if req.Name != "" {
-		updates["name"] = req.Name
-	}
 	if req.Email != "" {
 		updates["email"] = req.Email
-	}
-	if req.Login != "" {
-		updates["login"] = req.Login
 	}
 	if req.Role != "" {
 		updates["role"] = req.Role
@@ -286,7 +276,7 @@ func (h *Handler) ListEvents(c *gin.Context) {
 
 	resp := make([]EventResponse, len(events))
 	for i, ev := range events {
-		resp[i] = ToEventResponse(ev, "") // accountName omitted for simplicity
+		resp[i] = ToEventResponse(ev)
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
 	setContentRangeHeader(c, "events", params.Offset, params.Limit, total)
@@ -308,7 +298,7 @@ func (h *Handler) GetEvent(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
 		return
 	}
-	c.JSON(http.StatusOK, ToEventResponse(ev, ""))
+	c.JSON(http.StatusOK, ToEventResponse(ev))
 }
 
 // ---------- API Keys ----------

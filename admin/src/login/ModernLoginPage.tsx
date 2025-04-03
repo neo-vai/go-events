@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 
 const ModernLoginPage = () => {
-    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useSafeSetState(false);
     const login = useLogin();
@@ -22,7 +22,7 @@ const ModernLoginPage = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            await login({ username, password });
+            await login({ username: email, password });
         } catch (error: any) {
             notify(error.message || 'Invalid credentials', { type: 'error' });
             setLoading(false);
@@ -50,12 +50,13 @@ const ModernLoginPage = () => {
                         </Typography>
                         <form onSubmit={handleSubmit}>
                             <TextField
-                                label="Username"
+                                label="Email"
+                                type="email"
                                 variant="outlined"
                                 fullWidth
                                 margin="normal"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
                                 required
                                 autoFocus
                                 sx={{ mb: 2 }}

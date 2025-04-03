@@ -15,7 +15,6 @@ import (
 // Domain errors
 var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
-	ErrLoginAlreadyExists = errors.New("login already exists")
 	ErrAccountNotFound    = errors.New("account not found")
 	ErrInvalidPassword    = errors.New("invalid password")
 	ErrInvalidAccountID   = errors.New("invalid account ID")
@@ -61,7 +60,7 @@ func (h *BcryptHasher) Compare(hashedPassword, password string) error {
 type AccountRepository interface {
 	Create(ctx context.Context, account *account.Account) error
 	GetByID(ctx context.Context, id uuid.UUID) (*account.Account, error)
-	GetByLogin(ctx context.Context, login string) (*account.Account, error)
+	GetByEmail(ctx context.Context, email string) (*account.Account, error)
 	Update(ctx context.Context, account *account.Account) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
@@ -100,9 +99,6 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 			if pgErr.ConstraintName == "accounts_email_key" {
 				return ErrEmailAlreadyExists
 			}
-			if pgErr.ConstraintName == "accounts_login_key" {
-				return ErrLoginAlreadyExists
-			}
 		}
 		return err
 	}
@@ -111,8 +107,8 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 
 // VerifyPassword checks if the provided password matches the stored hash.
 // Also checks if account is active.
-func (s *AccountService) VerifyPassword(ctx context.Context, login, password string) (bool, error) {
-	acc, err := s.repo.GetByLogin(ctx, login)
+func (s *AccountService) VerifyPassword(ctx context.Context, email, password string) (bool, error) {
+	acc, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
 		return false, ErrAccountNotFound
 	}
@@ -141,9 +137,6 @@ func (s *AccountService) UpdateAccount(ctx context.Context, acc *account.Account
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			if pgErr.ConstraintName == "accounts_email_key" {
 				return ErrEmailAlreadyExists
-			}
-			if pgErr.ConstraintName == "accounts_login_key" {
-				return ErrLoginAlreadyExists
 			}
 		}
 		if errors.Is(err, postgres.ErrNoRowsAffected) {
@@ -180,9 +173,9 @@ func (s *AccountService) GetByID(ctx context.Context, idStr string) (*account.Ac
 	return acc, nil
 }
 
-// GetByLogin retrieves an account by login.
-func (s *AccountService) GetByLogin(ctx context.Context, login string) (*account.Account, error) {
-	acc, err := s.repo.GetByLogin(ctx, login)
+// GetByEmail retrieves an account by email.
+func (s *AccountService) GetByEmail(ctx context.Context, email string) (*account.Account, error) {
+	acc, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, ErrAccountNotFound
 	}
@@ -211,14 +204,8 @@ func (s *AccountService) UpdateAccountAdmin(ctx context.Context, idStr string, u
 	}
 
 	// Apply allowed updates
-	if name, ok := updates["name"].(string); ok {
-		acc.Name = name
-	}
 	if email, ok := updates["email"].(string); ok {
 		acc.Email = email
-	}
-	if login, ok := updates["login"].(string); ok {
-		acc.Login = login
 	}
 	if role, ok := updates["role"].(string); ok {
 		if role != "user" && role != "admin" {
@@ -237,9 +224,6 @@ func (s *AccountService) UpdateAccountAdmin(ctx context.Context, idStr string, u
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			if pgErr.ConstraintName == "accounts_email_key" {
 				return nil, ErrEmailAlreadyExists
-			}
-			if pgErr.ConstraintName == "accounts_login_key" {
-				return nil, ErrLoginAlreadyExists
 			}
 		}
 		if errors.Is(err, postgres.ErrNoRowsAffected) {

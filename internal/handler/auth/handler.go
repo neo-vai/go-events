@@ -12,8 +12,8 @@ import (
 )
 
 type AccountService interface {
-	GetByLogin(ctx context.Context, login string) (*account.Account, error)
-	VerifyPassword(ctx context.Context, login, password string) (bool, error)
+	GetByEmail(ctx context.Context, email string) (*account.Account, error)
+	VerifyPassword(ctx context.Context, email, password string) (bool, error)
 }
 
 type Handler struct {
@@ -31,7 +31,7 @@ func NewHandler(accountSvc AccountService, jwtSecret string, jwtExpiresHours int
 }
 
 type LoginRequest struct {
-	Login    string `json:"login" binding:"required,alphanumdash"`
+	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -58,7 +58,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.Abort()
 		return
 	}
-	valid, err := h.accountSvc.VerifyPassword(c, req.Login, req.Password)
+	valid, err := h.accountSvc.VerifyPassword(c, req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, account_service.ErrAccountInactive) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account is inactive"})
@@ -71,7 +71,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	acc, err := h.accountSvc.GetByLogin(c, req.Login)
+	acc, err := h.accountSvc.GetByEmail(c, req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve account"})
 		return

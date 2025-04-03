@@ -5,7 +5,7 @@ const authProvider: AuthProvider = {
         const response = await fetch('/api/v1/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ login: username, password }),
+            body: JSON.stringify({ email: username, password }),
         });
         if (!response.ok) {
             const error = await response.json();
@@ -80,7 +80,7 @@ const authProvider: AuthProvider = {
         const account = await response.json();
         return {
             id: account.id,
-            fullName: account.name || account.login,
+            fullName: account.email,
             avatar: undefined,
         };
     },

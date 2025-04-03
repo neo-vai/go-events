@@ -25,34 +25,34 @@ func NewAccountRepositoryPG(db *pgxpool.Pool) *AccountRepositoryPG {
 
 func (r *AccountRepositoryPG) Create(ctx context.Context, acc *account.Account) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO accounts (id, name, email, login, password_hash, role, active, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, acc.ID, acc.Name, acc.Email, acc.Login, acc.PasswordHash, acc.Role, acc.Active, time.Now())
+		INSERT INTO accounts (id, email, password_hash, role, active, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, acc.ID, acc.Email, acc.PasswordHash, acc.Role, acc.Active, time.Now())
 	return err
 }
 
 func (r *AccountRepositoryPG) GetByID(ctx context.Context, id uuid.UUID) (*account.Account, error) {
 	row := r.db.QueryRow(ctx, `
-		SELECT id, name, email, login, password_hash, role, active, created_at
+		SELECT id, email, password_hash, role, active, created_at
 		FROM accounts WHERE id=$1
 	`, id)
 
 	acc := &account.Account{}
-	err := row.Scan(&acc.ID, &acc.Name, &acc.Email, &acc.Login, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
+	err := row.Scan(&acc.ID, &acc.Email, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return acc, nil
 }
 
-func (r *AccountRepositoryPG) GetByLogin(ctx context.Context, login string) (*account.Account, error) {
+func (r *AccountRepositoryPG) GetByEmail(ctx context.Context, email string) (*account.Account, error) {
 	row := r.db.QueryRow(ctx, `
-		SELECT id, name, email, login, password_hash, role, active, created_at
-		FROM accounts WHERE login=$1
-	`, login)
+		SELECT id, email, password_hash, role, active, created_at
+		FROM accounts WHERE email=$1
+	`, email)
 
 	acc := &account.Account{}
-	err := row.Scan(&acc.ID, &acc.Name, &acc.Email, &acc.Login, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
+	err := row.Scan(&acc.ID, &acc.Email, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -61,8 +61,8 @@ func (r *AccountRepositoryPG) GetByLogin(ctx context.Context, login string) (*ac
 
 func (r *AccountRepositoryPG) Update(ctx context.Context, acc *account.Account) error {
 	tag, err := r.db.Exec(ctx, `
-		UPDATE accounts SET name=$1, email=$2, login=$3, password_hash=$4, role=$5, active=$6 WHERE id=$7
-	`, acc.Name, acc.Email, acc.Login, acc.PasswordHash, acc.Role, acc.Active, acc.ID)
+		UPDATE accounts SET email=$1, password_hash=$2, role=$3, active=$4 WHERE id=$5
+	`, acc.Email, acc.PasswordHash, acc.Role, acc.Active, acc.ID)
 	if err != nil {
 		return err
 	}
@@ -84,11 +84,11 @@ func (r *AccountRepositoryPG) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // List retrieves accounts with offset, limit, sorting, and filtering.
-// filters map supports: "q" (search in name, email, login), "role", "active".
+// filters map supports: "q" (search in email), "role", "active".
 func (r *AccountRepositoryPG) List(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
 	// Base query
 	baseQuery := `
-		SELECT id, name, email, login, password_hash, role, active, created_at
+		SELECT id, email, password_hash, role, active, created_at
 		FROM accounts
 		WHERE 1=1
 	`
@@ -100,10 +100,10 @@ func (r *AccountRepositoryPG) List(ctx context.Context, offset, limit int, sort,
 
 	// Apply filters
 	if q, ok := filters["q"].(string); ok && q != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(name ILIKE $%d OR email ILIKE $%d OR login ILIKE $%d)", argIdx, argIdx+1, argIdx+2))
+		whereClauses = append(whereClauses, fmt.Sprintf("email ILIKE $%d", argIdx))
 		pattern := "%" + q + "%"
-		args = append(args, pattern, pattern, pattern)
-		argIdx += 3
+		args = append(args, pattern)
+		argIdx++
 	}
 	if role, ok := filters["role"].(string); ok && role != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("role = $%d", argIdx))
@@ -123,8 +123,7 @@ func (r *AccountRepositoryPG) List(ctx context.Context, offset, limit int, sort,
 
 	// Sorting
 	allowedSortFields := map[string]bool{
-		"id": true, "name": true, "email": true, "login": true,
-		"role": true, "active": true, "created_at": true,
+		"id": true, "email": true, "role": true, "active": true, "created_at": true,
 	}
 	if sort != "" && allowedSortFields[sort] {
 		orderDir := "ASC"
@@ -157,7 +156,7 @@ func (r *AccountRepositoryPG) List(ctx context.Context, offset, limit int, sort,
 	var accounts []*account.Account
 	for rows.Next() {
 		acc := &account.Account{}
-		err := rows.Scan(&acc.ID, &acc.Name, &acc.Email, &acc.Login, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
+		err := rows.Scan(&acc.ID, &acc.Email, &acc.PasswordHash, &acc.Role, &acc.Active, &acc.CreatedAt)
 		if err != nil {
 			return nil, 0, err
 		}

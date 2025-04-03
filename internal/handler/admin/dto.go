@@ -11,9 +11,7 @@ import (
 // Account DTOs
 type AccountResponse struct {
 	ID        string `json:"id"`
-	Name      string `json:"name"`
 	Email     string `json:"email"`
-	Login     string `json:"login"`
 	Role      string `json:"role"`
 	Active    bool   `json:"active"`
 	CreatedAt string `json:"createdAt"`
@@ -22,9 +20,7 @@ type AccountResponse struct {
 func ToAccountResponse(acc *account.Account) AccountResponse {
 	return AccountResponse{
 		ID:        acc.ID.String(),
-		Name:      acc.Name,
 		Email:     acc.Email,
-		Login:     acc.Login,
 		Role:      acc.Role,
 		Active:    acc.Active,
 		CreatedAt: acc.CreatedAt.Format(time.RFC3339),
@@ -32,43 +28,37 @@ func ToAccountResponse(acc *account.Account) AccountResponse {
 }
 
 type CreateAccountRequest struct {
-	Name     string `json:"name" binding:"required,alphanumdash"`
 	Email    string `json:"email" binding:"required,email"`
-	Login    string `json:"login" binding:"required,alphanumdash"`
 	Password string `json:"password" binding:"required,strongpassword"`
 	Role     string `json:"role" binding:"required,oneof=user admin"`
 }
 
 type UpdateAccountRequest struct {
-	Name   string `json:"name,omitempty"`
 	Email  string `json:"email,omitempty" binding:"omitempty,email"`
-	Login  string `json:"login,omitempty"`
 	Role   string `json:"role,omitempty" binding:"omitempty,oneof=user admin"`
 	Active *bool  `json:"active,omitempty"`
 }
 
 // Event DTOs
 type EventResponse struct {
-	ID          string `json:"id"`
-	AccountID   string `json:"accountId"`
-	AccountName string `json:"accountName,omitempty"` // optional, filled from join
-	Username    string `json:"username"`
-	APIKeyID    string `json:"apiKeyId"`
-	Name        string `json:"name"`
-	Payload     string `json:"payload"`
-	CreatedAt   string `json:"createdAt"`
+	ID        string `json:"id"`
+	AccountID string `json:"accountId"`
+	Username  string `json:"username"`
+	APIKeyID  string `json:"apiKeyId"`
+	Name      string `json:"name"`
+	Payload   string `json:"payload"`
+	CreatedAt string `json:"createdAt"`
 }
 
-func ToEventResponse(ev *event.Event, accountName string) EventResponse {
+func ToEventResponse(ev *event.Event) EventResponse {
 	return EventResponse{
-		ID:          ev.ID,
-		AccountID:   ev.AccountID,
-		AccountName: accountName,
-		Username:    ev.Username,
-		APIKeyID:    ev.APIKeyID,
-		Name:        ev.Name,
-		Payload:     ev.Payload,
-		CreatedAt:   ev.CreatedAt.Format(time.RFC3339),
+		ID:        ev.ID,
+		AccountID: ev.AccountID,
+		Username:  ev.Username,
+		APIKeyID:  ev.APIKeyID,
+		Name:      ev.Name,
+		Payload:   ev.Payload,
+		CreatedAt: ev.CreatedAt.Format(time.RFC3339),
 	}
 }
 

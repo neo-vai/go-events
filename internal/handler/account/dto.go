@@ -3,23 +3,17 @@ package account
 import "github.com/neo-vai/go-events/internal/model/account"
 
 type CreateAccountRequest struct {
-	Name     string `json:"name" binding:"required,alphanumdash"`
 	Email    string `json:"email" binding:"required,email"`
-	Login    string `json:"login" binding:"required,alphanumdash"`
 	Password string `json:"password" binding:"required,strongpassword"`
 }
 
 type UpdateAccountRequest struct {
-	Name  string `json:"name" binding:"omitempty,alphanumdash"`
 	Email string `json:"email" binding:"omitempty,email"`
-	Login string `json:"login" binding:"omitempty,alphanumdash"`
 }
 
 type AccountResponse struct {
 	ID        string `json:"id"`
-	Name      string `json:"name"`
 	Email     string `json:"email"`
-	Login     string `json:"login"`
 	Role      string `json:"role"`
 	CreatedAt string `json:"createdAt"`
 }
@@ -27,9 +21,7 @@ type AccountResponse struct {
 func ToAccountResponse(acc *account.Account) AccountResponse {
 	return AccountResponse{
 		ID:        acc.ID.String(),
-		Name:      acc.Name,
 		Email:     acc.Email,
-		Login:     acc.Login,
 		Role:      acc.Role,
 		CreatedAt: acc.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}

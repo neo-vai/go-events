@@ -49,22 +49,16 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 
 	acc := &account.Account{
 		ID:    uuid.New(),
-		Name:  req.Name,
 		Email: req.Email,
-		Login: req.Login,
 	}
 
 	err := h.service.CreateAccount(c, acc, req.Password)
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := err.Error()
-		switch {
-		case errors.Is(err, account_service.ErrEmailAlreadyExists):
+		if errors.Is(err, account_service.ErrEmailAlreadyExists) {
 			status = http.StatusConflict
 			message = "email already exists"
-		case errors.Is(err, account_service.ErrLoginAlreadyExists):
-			status = http.StatusConflict
-			message = "login already exists"
 		}
 		c.JSON(status, gin.H{"error": message})
 		return
@@ -141,27 +135,17 @@ func (h *Handler) UpdateCurrentAccount(c *gin.Context) {
 		return
 	}
 
-	if req.Name != "" {
-		existing.Name = req.Name
-	}
 	if req.Email != "" {
 		existing.Email = req.Email
-	}
-	if req.Login != "" {
-		existing.Login = req.Login
 	}
 
 	err = h.service.UpdateAccount(c, existing)
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := err.Error()
-		switch {
-		case errors.Is(err, account_service.ErrEmailAlreadyExists):
+		if errors.Is(err, account_service.ErrEmailAlreadyExists) {
 			status = http.StatusConflict
 			message = "email already exists"
-		case errors.Is(err, account_service.ErrLoginAlreadyExists):
-			status = http.StatusConflict
-			message = "login already exists"
 		}
 		c.JSON(status, gin.H{"error": message})
 		return

@@ -9,9 +9,7 @@ import (
 
 type Account struct {
 	ID           uuid.UUID
-	Name         string
 	Email        string
-	Login        string
 	PasswordHash string
 	Role         string
 	Active       bool
