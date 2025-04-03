@@ -12,7 +12,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_healthy
+        condition: service_started
 
   worker:
     build:
@@ -25,7 +25,7 @@ services:
       db:
         condition: service_healthy
       nats:
-        condition: service_healthy
+        condition: service_started
     deploy:
       replicas: 2
 
@@ -65,11 +65,6 @@ services:
     image: nats:2.10-alpine
     restart: unless-stopped
     command: "-js"
-    healthcheck:
-      test: ["CMD", "nats", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     ports:
       - "4222:4222"
 
@@ -82,6 +77,9 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./admin/dist:/usr/share/nginx/html/admin:ro
+      - ./nginx-entrypoint.sh:/docker-entrypoint.sh:ro
+      - nginx_ssl:/etc/nginx/ssl
+    entrypoint: ["/docker-entrypoint.sh"]
     depends_on:
       - go-events
 
@@ -114,3 +112,5 @@ volumes:
     name: events_admin_dist
   grafana_data:
     name: events_grafana_data
+  nginx_ssl:
+    name: events_nginx_ssl
