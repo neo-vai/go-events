@@ -4,258 +4,265 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/neo-vai/go-events/internal/model/apikey"
-	"github.com/neo-vai/go-events/internal/repository/apikey/postgres"
+	"github.com/neo-vai/go-events/internal/model/account"
+	accountRepoPG "github.com/neo-vai/go-events/internal/repository/account/postgres"
+	apikeyRepoPG "github.com/neo-vai/go-events/internal/repository/apikey/postgres"
+	"github.com/neo-vai/go-events/internal/repository/cache"
+	accountService "github.com/neo-vai/go-events/internal/service/account"
+	"github.com/neo-vai/go-events/internal/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-type MockAPIKeyRepository struct {
-	mock.Mock
+// setupAPIKeyService initializes all dependencies for API key tests and returns:
+// - the APIKeyService
+// - the APIKeyRepository
+// - the AccountRepository
+// - the test account ID (already created and active)
+func setupAPIKeyService(t *testing.T) (*APIKeyService, *apikeyRepoPG.APIKeyRepositoryPG, *accountRepoPG.AccountRepositoryPG, string) {
+	t.Helper()
+	deps := testutil.SetupIntegrationTest(t)
+
+	accountRepo := accountRepoPG.NewAccountRepositoryPG(deps.DB)
+	apiKeyRepo := apikeyRepoPG.NewAPIKeyRepositoryPG(deps.DB)
+	apiKeyCache := cache.NewAPIKeyCache(deps.RedisClient.Client())
+	service := NewAPIKeyService(apiKeyRepo, apiKeyCache, 32)
+
+	// Create a test account for API key association
+	hasher := accountService.NewBcryptHasher(10)
+	accSvc := accountService.NewAccountService(accountRepo, hasher)
+	acc := &account.Account{ID: uuid.New(), Email: "apikey-test@example.com"}
+	err := accSvc.CreateAccount(context.Background(), acc, "Pass123")
+	require.NoError(t, err)
+
+	return service, apiKeyRepo, accountRepo, acc.ID.String()
 }
 
-func (m *MockAPIKeyRepository) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
-	args := m.Called(ctx, page, limit, sort, order, filters)
-	return args.Get(0).([]*apikey.APIKey), args.Get(1).(int64), args.Error(2)
-}
-
-func (m *MockAPIKeyRepository) Create(ctx context.Context, key *apikey.APIKey) error {
-	args := m.Called(ctx, key)
-	return args.Error(0)
-}
-func (m *MockAPIKeyRepository) GetByID(ctx context.Context, id uuid.UUID) (*apikey.APIKey, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*apikey.APIKey), args.Error(1)
-}
-func (m *MockAPIKeyRepository) GetByAccountID(ctx context.Context, accountID uuid.UUID) ([]*apikey.APIKey, error) {
-	args := m.Called(ctx, accountID)
-	return args.Get(0).([]*apikey.APIKey), args.Error(1)
-}
-func (m *MockAPIKeyRepository) GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error) {
-	args := m.Called(ctx, keyHash)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*apikey.APIKey), args.Error(1)
-}
-func (m *MockAPIKeyRepository) Update(ctx context.Context, key *apikey.APIKey) error {
-	args := m.Called(ctx, key)
-	return args.Error(0)
-}
-func (m *MockAPIKeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	args := m.Called(ctx, id)
-	return args.Error(0)
-}
-
-func TestAPIKeyService_Generate(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestGenerateAPIKey_Success(t *testing.T) {
+	svc, repo, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	accountID := uuid.New().String()
-
-	repo.On("Create", ctx, mock.AnythingOfType("*apikey.APIKey")).Return(nil).Run(func(args mock.Arguments) {
-		key := args.Get(1).(*apikey.APIKey)
-		assert.NotEmpty(t, key.KeyHash)
-		assert.NotEmpty(t, key.PlainKey)
-		hasher := sha256.New()
-		hasher.Write([]byte(key.PlainKey))
-		expectedHash := hex.EncodeToString(hasher.Sum(nil))
-		assert.Equal(t, expectedHash, key.KeyHash)
-	}).Once()
 
 	key, err := svc.Generate(ctx, accountID)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, key.ID)
+	require.NoError(t, err)
+
+	// Check returned key has PlainKey and it's not empty
 	assert.NotEmpty(t, key.PlainKey)
-	assert.True(t, key.Active)
+	assert.NotEmpty(t, key.KeyHash)
 	assert.Equal(t, accountID, key.AccountID.String())
-	repo.AssertExpectations(t)
+	assert.True(t, key.Active)
+
+	// Verify hash matches PlainKey
+	hasher := sha256.New()
+	hasher.Write([]byte(key.PlainKey))
+	expectedHash := hex.EncodeToString(hasher.Sum(nil))
+	assert.Equal(t, expectedHash, key.KeyHash)
+
+	// Verify in DB
+	dbKey, err := repo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	assert.Equal(t, key.KeyHash, dbKey.KeyHash)
+	assert.Empty(t, dbKey.PlainKey, "PlainKey should not be persisted")
+	assert.True(t, dbKey.Active)
 }
 
-func TestAPIKeyService_Generate_InvalidAccountID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestGenerateAPIKey_InvalidAccountID(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
 	ctx := context.Background()
+
 	_, err := svc.Generate(ctx, "not-a-uuid")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid account ID")
+	assert.ErrorIs(t, err, ErrInvalidAccountID)
 }
 
-func TestAPIKeyService_Generate_RepoError(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestGenerateAPIKey_AccountNotFound(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
 	ctx := context.Background()
-	accountID := uuid.New().String()
-	repo.On("Create", ctx, mock.Anything).Return(errors.New("db error")).Once()
-	_, err := svc.Generate(ctx, accountID)
-	assert.Error(t, err)
-	repo.AssertExpectations(t)
+
+	_, err := svc.Generate(ctx, uuid.New().String())
+	assert.ErrorIs(t, err, ErrAccountNotFound)
 }
 
-func TestAPIKeyService_GetByID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestValidateAPIKey_Success(t *testing.T) {
+	svc, _, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	id := uuid.New()
-	expected := &apikey.APIKey{ID: id, KeyHash: "somehash"}
-	repo.On("GetByID", ctx, id).Return(expected, nil).Once()
-	key, err := svc.GetByID(ctx, id.String())
-	assert.NoError(t, err)
-	assert.Equal(t, expected, key)
+
+	// Generate a key for the test account
+	key, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
+
+	// Validate the plain key
+	accID, role, keyID, err := svc.ValidateAPIKey(ctx, key.PlainKey)
+	require.NoError(t, err)
+	assert.Equal(t, accountID, accID)
+	assert.Equal(t, "", role) // role is not returned from ValidateAPIKey
+	assert.Equal(t, key.ID.String(), keyID)
+
+	// Second validation should hit cache (no DB call)
+	accID2, role2, keyID2, err := svc.ValidateAPIKey(ctx, key.PlainKey)
+	require.NoError(t, err)
+	assert.Equal(t, accID, accID2)
+	assert.Equal(t, role, role2)
+	assert.Equal(t, keyID, keyID2)
 }
 
-func TestAPIKeyService_GetByID_InvalidID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestValidateAPIKey_Inactive(t *testing.T) {
+	svc, _, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	_, err := svc.GetByID(ctx, "invalid")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid key ID")
+
+	key, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
+
+	// Deactivate the key
+	err = svc.UpdateActive(ctx, key.ID.String(), false)
+	require.NoError(t, err)
+
+	// Validation should fail
+	_, _, _, err = svc.ValidateAPIKey(ctx, key.PlainKey)
+	assert.ErrorIs(t, err, ErrInactiveKey)
+
+	// Cache should also return error immediately (no DB)
+	_, _, _, err = svc.ValidateAPIKey(ctx, key.PlainKey)
+	assert.ErrorIs(t, err, ErrInactiveKey)
 }
 
-func TestAPIKeyService_UpdateActive(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestValidateAPIKey_InvalidKey(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
 	ctx := context.Background()
-	id := uuid.New()
-	key := &apikey.APIKey{ID: id, Active: true}
-	repo.On("GetByID", ctx, id).Return(key, nil).Once()
-	repo.On("Update", ctx, key).Return(nil).Once()
-	err := svc.UpdateActive(ctx, id.String(), false)
-	assert.NoError(t, err)
-	assert.False(t, key.Active)
-	repo.AssertExpectations(t)
-}
 
-func TestAPIKeyService_UpdateActive_InvalidID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
-	ctx := context.Background()
-	err := svc.UpdateActive(ctx, "bad", true)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid key ID")
-}
-
-func TestAPIKeyService_UpdateActive_KeyNotFound(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
-	ctx := context.Background()
-	id := uuid.New()
-	repo.On("GetByID", ctx, id).Return(nil, ErrKeyNotFound).Once()
-	err := svc.UpdateActive(ctx, id.String(), true)
+	_, _, _, err := svc.ValidateAPIKey(ctx, "nonexistent-key")
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	repo.AssertExpectations(t)
 }
 
-func TestAPIKeyService_Delete_NotFound(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestUpdateActive_Success(t *testing.T) {
+	svc, repo, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	id := uuid.New()
-	repo.On("Delete", ctx, id).Return(ErrKeyNotFound).Once()
-	err := svc.Delete(ctx, id.String())
+
+	key, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
+
+	// Deactivate
+	err = svc.UpdateActive(ctx, key.ID.String(), false)
+	require.NoError(t, err)
+
+	dbKey, err := repo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	assert.False(t, dbKey.Active)
+
+	// Cache should be invalidated
+	cached, err := svc.cache.Get(ctx, key.KeyHash)
+	require.NoError(t, err)
+	assert.Nil(t, cached, "cache should be empty after update")
+
+	// Activate again
+	err = svc.UpdateActive(ctx, key.ID.String(), true)
+	require.NoError(t, err)
+	dbKey, err = repo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	assert.True(t, dbKey.Active)
+}
+
+func TestUpdateActive_InvalidKeyID(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
+	ctx := context.Background()
+
+	err := svc.UpdateActive(ctx, "invalid", true)
+	assert.ErrorIs(t, err, ErrInvalidKeyID)
+}
+
+func TestUpdateActive_KeyNotFound(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
+	ctx := context.Background()
+
+	err := svc.UpdateActive(ctx, uuid.New().String(), true)
 	assert.ErrorIs(t, err, ErrKeyNotFound)
-	repo.AssertExpectations(t)
 }
 
-func TestAPIKeyService_UpdateActive_RepoNoRows(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestDeleteAPIKey_Success(t *testing.T) {
+	svc, repo, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	id := uuid.New()
-	key := &apikey.APIKey{ID: id, Active: true}
-	repo.On("GetByID", ctx, id).Return(key, nil).Once()
-	repo.On("Update", ctx, key).Return(postgres.ErrNoRowsAffected).Once()
-	err := svc.UpdateActive(ctx, id.String(), false)
-	assert.ErrorIs(t, err, ErrKeyNotFound)
-	repo.AssertExpectations(t)
-}
 
-func TestAPIKeyService_Delete(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
-	ctx := context.Background()
-	id := uuid.New()
-	repo.On("Delete", ctx, id).Return(nil).Once()
-	err := svc.Delete(ctx, id.String())
-	assert.NoError(t, err)
-	repo.AssertExpectations(t)
-}
+	key, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
 
-func TestAPIKeyService_Delete_InvalidID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
-	ctx := context.Background()
-	err := svc.Delete(ctx, "bad")
+	err = svc.Delete(ctx, key.ID.String())
+	require.NoError(t, err)
+
+	_, err = repo.GetByID(ctx, key.ID)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid key ID")
+
+	// Cache should be invalidated
+	cached, err := svc.cache.Get(ctx, key.KeyHash)
+	require.NoError(t, err)
+	assert.Nil(t, cached)
 }
 
-func TestAPIKeyService_ListByAccount(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestDeleteAPIKey_InvalidKeyID(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
 	ctx := context.Background()
-	accountID := uuid.New()
-	keys := []*apikey.APIKey{{ID: uuid.New()}, {ID: uuid.New()}}
-	repo.On("GetByAccountID", ctx, accountID).Return(keys, nil).Once()
-	result, err := svc.ListByAccount(ctx, accountID.String())
-	assert.NoError(t, err)
-	assert.Len(t, result, 2)
-	repo.AssertExpectations(t)
+
+	err := svc.Delete(ctx, "invalid")
+	assert.ErrorIs(t, err, ErrInvalidKeyID)
 }
 
-func TestAPIKeyService_ListByAccount_InvalidAccountID(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestDeleteAPIKey_NotFound(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
 	ctx := context.Background()
+
+	err := svc.Delete(ctx, uuid.New().String())
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestListByAccount_Success(t *testing.T) {
+	svc, _, _, accountID := setupAPIKeyService(t)
+	ctx := context.Background()
+
+	// Generate two keys
+	key1, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
+	key2, err := svc.Generate(ctx, accountID)
+	require.NoError(t, err)
+
+	keys, err := svc.ListByAccount(ctx, accountID)
+	require.NoError(t, err)
+	assert.Len(t, keys, 2)
+
+	// Keys should not contain PlainKey when fetched from DB
+	for _, k := range keys {
+		assert.Empty(t, k.PlainKey)
+		assert.Contains(t, []string{key1.ID.String(), key2.ID.String()}, k.ID.String())
+	}
+}
+
+func TestListByAccount_InvalidAccountID(t *testing.T) {
+	svc, _, _, _ := setupAPIKeyService(t)
+	ctx := context.Background()
+
 	_, err := svc.ListByAccount(ctx, "invalid")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid account ID")
+	assert.ErrorIs(t, err, ErrInvalidAccountID)
 }
 
-func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
+func TestListAllAPIKeys_Pagination(t *testing.T) {
+	svc, _, _, accountID := setupAPIKeyService(t)
 	ctx := context.Background()
-	accountID := uuid.New()
-	plainKey := "my-valid-plain-key"
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hash := hex.EncodeToString(hasher.Sum(nil))
 
-	apiKeyObj := &apikey.APIKey{AccountID: accountID, KeyHash: hash, Active: true}
+	// Create multiple keys for the same account
+	for i := 0; i < 5; i++ {
+		_, err := svc.Generate(ctx, accountID)
+		require.NoError(t, err)
+	}
 
-	repo.On("GetByKeyHash", ctx, hash).Return(apiKeyObj, nil).Once()
-	gotAccountID, gotRole, err := svc.ValidateAPIKey(ctx, plainKey)
-	assert.NoError(t, err)
-	assert.Equal(t, accountID.String(), gotAccountID)
-	assert.Equal(t, "", gotRole)
+	// List with limit
+	keys, total, err := svc.ListAllAPIKeys(ctx, 0, 3, "createdAt", "DESC", nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total)
+	assert.Len(t, keys, 3)
 
-	apiKeyObj.Active = false
-	repo.On("GetByKeyHash", ctx, hash).Return(apiKeyObj, nil).Once()
-	_, _, err = svc.ValidateAPIKey(ctx, plainKey)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "inactive")
-}
-
-func TestAPIKeyService_ValidateAPIKey_NotFound(t *testing.T) {
-	repo := new(MockAPIKeyRepository)
-	svc := NewAPIKeyService(repo, 32)
-	ctx := context.Background()
-	plainKey := "missing"
-	hasher := sha256.New()
-	hasher.Write([]byte(plainKey))
-	hash := hex.EncodeToString(hasher.Sum(nil))
-
-	repo.On("GetByKeyHash", ctx, hash).Return(nil, errors.New("not found")).Once()
-	_, _, err := svc.ValidateAPIKey(ctx, plainKey)
-	assert.Error(t, err)
-	repo.AssertExpectations(t)
+	// Filter by active
+	filters := map[string]interface{}{"active": true}
+	keys, total, err = svc.ListAllAPIKeys(ctx, 0, 10, "createdAt", "DESC", filters)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), total)
+	assert.Len(t, keys, 5)
 }

@@ -8,24 +8,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/event"
-	event_service "github.com/neo-vai/go-events/internal/service/event"
+	eventService "github.com/neo-vai/go-events/internal/service/event"
+	"github.com/neo-vai/go-events/internal/validator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-// MockEventService is a mock for EventService.
 type MockEventService struct {
 	mock.Mock
-}
-
-func (m *MockEventService) CreateEvent(ctx context.Context, ev *event.Event) error {
-	args := m.Called(ctx, ev)
-	return args.Error(0)
 }
 
 func (m *MockEventService) GetByID(ctx context.Context, id string) (*event.Event, error) {
@@ -44,128 +41,157 @@ func (m *MockEventService) ListEvents(ctx context.Context, accountID, username, 
 	return args.Get(0).([]*event.Event), args.Error(1)
 }
 
-// Helper to set a mock authenticated account in context.
-func withMockAuth(accountID string) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func (m *MockEventService) ListEventsPaginated(ctx context.Context, accountID string, offset, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error) {
+	args := m.Called(ctx, accountID, offset, limit, sort, order, username, apiKeyID, searchQuery)
+	if args.Get(0) == nil {
+		return nil, 0, args.Error(2)
+	}
+	return args.Get(0).([]*event.Event), args.Get(1).(int64), args.Error(2)
+}
+
+type MockPublisher struct {
+	mock.Mock
+}
+
+func (m *MockPublisher) PublishEvent(ctx context.Context, ev *event.Event) error {
+	args := m.Called(ctx, ev)
+	return args.Error(0)
+}
+
+func setupEventHandlerTest() (*gin.Engine, *MockEventService, *MockPublisher, string) {
+	gin.SetMode(gin.TestMode)
+	validator.RegisterCustomValidators()
+	svc := new(MockEventService)
+	publisher := new(MockPublisher)
+	h := NewHandler(svc, publisher)
+	accountID := uuid.New().String()
+
+	r := gin.New()
+	r.Use(middleware.ValidationErrorHandler())
+	protected := r.Group("/api/v1")
+	protected.Use(func(c *gin.Context) {
 		c.Set(string(middleware.AccountIDKey), accountID)
 		c.Next()
-	}
-}
-
-func setupEventRouter(service EventService, mockAccountID string) *gin.Engine {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	// Apply mock auth middleware to all routes that require authentication
-	authGroup := r.Group("/")
-	authGroup.Use(withMockAuth(mockAccountID))
+	})
 	{
-		h := NewHandler(service)
-		authGroup.POST("/api/v1/events", h.CreateEvent)
-		authGroup.GET("/api/v1/events", h.ListEvents)
-		authGroup.GET("/api/v1/events/:id", h.GetEvent)
+		protected.POST("/events", h.CreateEvent)
+		protected.GET("/events", h.ListEvents)
+		protected.GET("/events/:id", h.GetEvent)
 	}
-	return r
+	return r, svc, publisher, accountID
 }
 
-// ---------- CreateEvent ----------
-func TestCreateEvent_Success(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := uuid.New().String()
-	router := setupEventRouter(svc, accountID)
+func TestHandler_CreateEvent_Success(t *testing.T) {
+	r, svc, publisher, accountID := setupEventHandlerTest()
 
 	reqBody := CreateEventRequest{
-		Username: "john",
-		APIKeyID: uuid.New().String(),
-		Name:     "user.login",
-		Payload:  `{"ip":"1.2.3.4"}`,
+		Username: "testuser",
+		Name:     "user_login",
+		Payload:  `{"ip":"192.168.1.1"}`,
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 
-	svc.On("CreateEvent", mock.Anything, mock.MatchedBy(func(ev *event.Event) bool {
-		return ev.AccountID == accountID && ev.Username == reqBody.Username && ev.Name == reqBody.Name
+	publisher.On("PublishEvent", mock.Anything, mock.MatchedBy(func(ev *event.Event) bool {
+		return ev.AccountID == accountID &&
+			ev.Username == "testuser" &&
+			ev.Name == "user_login" &&
+			ev.Payload == `{"ip":"192.168.1.1"}`
 	})).Return(nil).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp EventResponse
+	assert.Equal(t, http.StatusAccepted, w.Code)
+
+	var resp map[string]string
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
-	assert.Equal(t, accountID, resp.AccountID)
-	assert.Equal(t, reqBody.Username, resp.Username)
-	assert.Equal(t, reqBody.Name, resp.Name)
-	svc.AssertExpectations(t)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp["id"])
+	assert.Equal(t, "queued", resp["status"])
+	assert.NotEmpty(t, w.Header().Get("Location"))
+
+	svc.AssertNotCalled(t, "CreateEvent")
+	publisher.AssertExpectations(t)
 }
 
-func TestCreateEvent_InvalidJSON(t *testing.T) {
+func TestHandler_CreateEvent_WithAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	validator.RegisterCustomValidators()
 	svc := new(MockEventService)
-	router := setupEventRouter(svc, uuid.New().String())
+	publisher := new(MockPublisher)
+	h := NewHandler(svc, publisher)
+	accountID := uuid.New().String()
+	apiKeyID := uuid.New().String()
+
+	r := gin.New()
+	r.Use(middleware.ValidationErrorHandler())
+	r.Use(func(c *gin.Context) {
+		c.Set(string(middleware.AccountIDKey), accountID)
+		c.Set(string(middleware.APIKeyIDKey), apiKeyID)
+		c.Next()
+	})
+	r.POST("/api/v1/events", h.CreateEvent)
+
+	reqBody := CreateEventRequest{
+		Username: "testuser",
+		Name:     "api_call",
+		Payload:  `{}`,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	publisher.On("PublishEvent", mock.Anything, mock.MatchedBy(func(ev *event.Event) bool {
+		return ev.APIKeyID == apiKeyID
+	})).Return(nil).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	publisher.AssertExpectations(t)
+}
+
+func TestHandler_CreateEvent_Unauthorized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	validator.RegisterCustomValidators()
+	svc := new(MockEventService)
+	publisher := new(MockPublisher)
+	h := NewHandler(svc, publisher)
+
+	r := gin.New()
+	r.Use(middleware.ValidationErrorHandler())
+	r.POST("/api/v1/events", h.CreateEvent)
+
+	reqBody := CreateEventRequest{Username: "test", Name: "test", Payload: `{}`}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	publisher.AssertNotCalled(t, "PublishEvent")
+}
+
+func TestHandler_CreateEvent_InvalidJSON(t *testing.T) {
+	r, _, publisher, _ := setupEventHandlerTest()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader([]byte("invalid")))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	svc.AssertNotCalled(t, "CreateEvent", mock.Anything, mock.Anything)
+	publisher.AssertNotCalled(t, "PublishEvent")
 }
 
-func TestCreateEvent_MissingRequiredFields(t *testing.T) {
-	svc := new(MockEventService)
-	router := setupEventRouter(svc, uuid.New().String())
+func TestHandler_CreateEvent_MissingRequiredFields(t *testing.T) {
+	r, _, publisher, _ := setupEventHandlerTest()
 
-	reqBody := CreateEventRequest{
-		// missing Username
-		Name: "event",
-	}
-	jsonBody, _ := json.Marshal(reqBody)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	svc.AssertNotCalled(t, "CreateEvent", mock.Anything, mock.Anything)
-}
-
-func TestCreateEvent_ServiceError(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := uuid.New().String()
-	router := setupEventRouter(svc, accountID)
-
-	reqBody := CreateEventRequest{
-		Username: "john",
-		Name:     "event",
-	}
-	jsonBody, _ := json.Marshal(reqBody)
-
-	svc.On("CreateEvent", mock.Anything, mock.Anything).Return(errors.New("db error")).Once()
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	svc.AssertExpectations(t)
-}
-
-func TestCreateEvent_Unauthenticated(t *testing.T) {
-	svc := new(MockEventService)
-	// Setup router without mock auth middleware
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := NewHandler(svc)
-	r.POST("/api/v1/events", h.CreateEvent)
-
-	reqBody := CreateEventRequest{
-		Username: "john",
-		Name:     "event",
-	}
+	reqBody := map[string]string{"name": "test"}
 	jsonBody, _ := json.Marshal(reqBody)
 
 	w := httptest.NewRecorder()
@@ -173,75 +199,84 @@ func TestCreateEvent_Unauthenticated(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	svc.AssertNotCalled(t, "CreateEvent", mock.Anything, mock.Anything)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	publisher.AssertNotCalled(t, "PublishEvent")
 }
 
-// ---------- ListEvents ----------
-func TestListEvents_Success(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := "acc1"
-	router := setupEventRouter(svc, accountID)
+func TestHandler_CreateEvent_PublisherError(t *testing.T) {
+	r, _, publisher, _ := setupEventHandlerTest()
 
-	events := []*event.Event{
-		{ID: "e1", AccountID: accountID, Username: "john", Name: "login"},
-		{ID: "e2", AccountID: accountID, Username: "john", Name: "logout"},
+	reqBody := CreateEventRequest{
+		Username: "testuser",
+		Name:     "test_event",
+		Payload:  `{}`,
 	}
+	jsonBody, _ := json.Marshal(reqBody)
 
-	svc.On("ListEvents", mock.Anything, accountID, "john", "").Return(events, nil).Once()
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/events?user=john", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []EventResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
-	assert.Len(t, resp, 2)
-	assert.Equal(t, "e1", resp[0].ID)
-	svc.AssertExpectations(t)
-}
-
-func TestListEvents_Empty(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := "acc1"
-	router := setupEventRouter(svc, accountID)
-
-	svc.On("ListEvents", mock.Anything, accountID, "", "").Return([]*event.Event{}, nil).Once()
+	publisher.On("PublishEvent", mock.Anything, mock.Anything).Return(errors.New("broker unavailable")).Once()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/events", nil)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp []EventResponse
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
-	assert.Empty(t, resp)
-	svc.AssertExpectations(t)
-}
-
-func TestListEvents_ServiceError(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := "acc1"
-	router := setupEventRouter(svc, accountID)
-
-	svc.On("ListEvents", mock.Anything, accountID, "", "").Return(nil, errors.New("db error")).Once()
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/events", nil)
-	router.ServeHTTP(w, req)
+	req, _ := http.NewRequest("POST", "/api/v1/events", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	publisher.AssertExpectations(t)
+}
+
+func TestHandler_ListEvents_Success(t *testing.T) {
+	r, svc, _, accountID := setupEventHandlerTest()
+
+	events := []*event.Event{
+		{ID: "ev1", AccountID: accountID, Username: "user1", Name: "login", Payload: `{}`, CreatedAt: time.Now()},
+		{ID: "ev2", AccountID: accountID, Username: "user2", Name: "logout", Payload: `{}`, CreatedAt: time.Now()},
+	}
+
+	svc.On("ListEventsPaginated", mock.Anything, accountID, 0, 20, "id", "ASC", "", "", "").
+		Return(events, int64(2), nil).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/events", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "2", w.Header().Get("X-Total-Count"))
+
+	var resp []EventResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp, 2)
+
 	svc.AssertExpectations(t)
 }
 
-func TestListEvents_Unauthenticated(t *testing.T) {
-	svc := new(MockEventService)
+func TestHandler_ListEvents_WithPagination(t *testing.T) {
+	r, svc, _, accountID := setupEventHandlerTest()
+
+	events := []*event.Event{
+		{ID: "ev3", AccountID: accountID, Username: "user3", Name: "event3", Payload: `{}`, CreatedAt: time.Now()},
+	}
+
+	svc.On("ListEventsPaginated", mock.Anything, accountID, 10, 10, "created_at", "DESC", "bob", "key123", "search").
+		Return(events, int64(1), nil).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/events?_start=10&_end=20&_sort=created_at&_order=DESC&filter={\"username\":\"bob\",\"api_key_id\":\"key123\",\"q\":\"search\"}", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestHandler_ListEvents_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	validator.RegisterCustomValidators()
+	svc := new(MockEventService)
+	publisher := new(MockPublisher)
+	h := NewHandler(svc, publisher)
+
 	r := gin.New()
-	h := NewHandler(svc)
+	r.Use(middleware.ValidationErrorHandler())
 	r.GET("/api/v1/events", h.ListEvents)
 
 	w := httptest.NewRecorder()
@@ -249,59 +284,76 @@ func TestListEvents_Unauthenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	svc.AssertNotCalled(t, "ListEvents", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "ListEventsPaginated")
 }
 
-// ---------- GetEvent ----------
-func TestGetEvent_Success(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := uuid.New().String()
-	router := setupEventRouter(svc, accountID)
+func TestHandler_ListEvents_ServiceError(t *testing.T) {
+	r, svc, _, accountID := setupEventHandlerTest()
 
+	svc.On("ListEventsPaginated", mock.Anything, accountID, 0, 20, "id", "ASC", "", "", "").
+		Return(nil, int64(0), errors.New("database error")).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/events", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestHandler_GetEvent_Success(t *testing.T) {
+	r, svc, _, accountID := setupEventHandlerTest()
 	eventID := uuid.New().String()
+
 	ev := &event.Event{
 		ID:        eventID,
 		AccountID: accountID,
-		Username:  "john",
-		Name:      "login",
+		Username:  "testuser",
+		Name:      "user_login",
+		Payload:   `{"ip":"192.168.1.1"}`,
+		CreatedAt: time.Now(),
 	}
 
 	svc.On("GetByID", mock.Anything, eventID).Return(ev, nil).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/events/"+eventID, nil)
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp EventResponse
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, eventID, resp.ID)
-	assert.Equal(t, ev.Name, resp.Name)
+	assert.Equal(t, "testuser", resp.Username)
+
 	svc.AssertExpectations(t)
 }
 
-func TestGetEvent_NotFound(t *testing.T) {
-	svc := new(MockEventService)
-	accountID := uuid.New().String()
-	router := setupEventRouter(svc, accountID)
-
+func TestHandler_GetEvent_NotFound(t *testing.T) {
+	r, svc, _, _ := setupEventHandlerTest()
 	eventID := uuid.New().String()
-	svc.On("GetByID", mock.Anything, eventID).Return(nil, event_service.ErrEventNotFound).Once()
+
+	svc.On("GetByID", mock.Anything, eventID).Return(nil, eventService.ErrEventNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/events/"+eventID, nil)
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	svc.AssertExpectations(t)
 }
 
-func TestGetEvent_Unauthenticated(t *testing.T) {
-	svc := new(MockEventService)
+func TestHandler_GetEvent_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	validator.RegisterCustomValidators()
+	svc := new(MockEventService)
+	publisher := new(MockPublisher)
+	h := NewHandler(svc, publisher)
+
 	r := gin.New()
-	h := NewHandler(svc)
+	r.Use(middleware.ValidationErrorHandler())
 	r.GET("/api/v1/events/:id", h.GetEvent)
 
 	w := httptest.NewRecorder()
@@ -309,29 +361,30 @@ func TestGetEvent_Unauthenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	svc.AssertNotCalled(t, "GetByID", mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "GetByID")
 }
 
-func TestGetEvent_Forbidden_NotOwner(t *testing.T) {
-	svc := new(MockEventService)
-	authenticatedAccountID := uuid.New().String()
-	router := setupEventRouter(svc, authenticatedAccountID)
-
+func TestHandler_GetEvent_ForbiddenNotOwner(t *testing.T) {
+	r, svc, _, accountID := setupEventHandlerTest()
 	eventID := uuid.New().String()
 	otherAccountID := uuid.New().String()
+
 	ev := &event.Event{
 		ID:        eventID,
 		AccountID: otherAccountID,
-		Username:  "john",
-		Name:      "login",
+		Username:  "testuser",
+		Name:      "user_login",
+		Payload:   `{}`,
+		CreatedAt: time.Now(),
 	}
 
 	svc.On("GetByID", mock.Anything, eventID).Return(ev, nil).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/v1/events/"+eventID, nil)
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, accountID, accountID)
 	svc.AssertExpectations(t)
 }

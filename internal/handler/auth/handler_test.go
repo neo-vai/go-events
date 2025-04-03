@@ -7,155 +7,272 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/account"
+	accountService "github.com/neo-vai/go-events/internal/service/account"
+	"github.com/neo-vai/go-events/internal/validator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-type mockAccountService struct {
+type MockAccountService struct {
 	mock.Mock
 }
 
-func (m *mockAccountService) GetByLogin(ctx context.Context, login string) (*account.Account, error) {
-	args := m.Called(ctx, login)
+func (m *MockAccountService) GetByEmail(ctx context.Context, email string) (*account.Account, error) {
+	args := m.Called(ctx, email)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*account.Account), args.Error(1)
 }
-func (m *mockAccountService) VerifyPassword(ctx context.Context, login, password string) (bool, error) {
-	args := m.Called(ctx, login, password)
+
+func (m *MockAccountService) VerifyPassword(ctx context.Context, email, password string) (bool, error) {
+	args := m.Called(ctx, email, password)
 	return args.Bool(0), args.Error(1)
 }
 
-func setupAuthRouter(svc AccountService) *gin.Engine {
+func setupAuthHandlerTest() (*gin.Engine, *MockAccountService) {
 	gin.SetMode(gin.TestMode)
-	r := gin.Default()
-	h := NewHandler(svc)
-	r.POST("/api/v1/login", h.Login)
-	return r
-}
+	validator.RegisterCustomValidators()
+	svc := new(MockAccountService)
+	h := NewHandler(svc, "test-jwt-secret-with-minimum-32-chars-long", 24)
 
-func TestMain(m *testing.M) {
-	// Set a default JWT secret for tests
-	os.Setenv("JWT_SECRET", "test-secret")
-	os.Setenv("JWT_EXPIRES_HOURS", "1")
-	code := m.Run()
-	os.Unsetenv("JWT_SECRET")
-	os.Unsetenv("JWT_EXPIRES_HOURS")
-	os.Exit(code)
+	r := gin.New()
+	r.Use(middleware.ValidationErrorHandler())
+	r.POST("/api/v1/login", h.Login)
+	return r, svc
 }
 
 func TestLogin_Success(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+	r, svc := setupAuthHandlerTest()
+	accountID := uuid.New()
 
-	accID := uuid.New()
-	svc.On("VerifyPassword", mock.Anything, "john", "secret").Return(true, nil)
-	svc.On("GetByLogin", mock.Anything, "john").Return(&account.Account{ID: accID}, nil)
-
-	reqBody := LoginRequest{Login: "john", Password: "secret"}
+	reqBody := LoginRequest{
+		Email:    "user@example.com",
+		Password: "CorrectPass123",
+	}
 	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "user@example.com", "CorrectPass123").
+		Return(true, nil).Once()
+	svc.On("GetByEmail", mock.Anything, "user@example.com").
+		Return(&account.Account{ID: accountID, Role: "user"}, nil).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var resp LoginResponse
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Token)
-	assert.Equal(t, accID.String(), resp.AccountID)
+	assert.Equal(t, accountID.String(), resp.AccountID)
+
 	svc.AssertExpectations(t)
 }
 
 func TestLogin_InvalidJSON(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+	r, svc := setupAuthHandlerTest()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader([]byte("invalid")))
+	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader([]byte("invalid json")))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	svc.AssertNotCalled(t, "VerifyPassword", mock.Anything, mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "VerifyPassword")
 }
 
-func TestLogin_MissingFields(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+func TestLogin_MissingEmail(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
 
-	reqBody := LoginRequest{Login: "john"} // missing password
+	reqBody := map[string]string{"password": "Pass123"}
 	jsonBody, _ := json.Marshal(reqBody)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	svc.AssertNotCalled(t, "VerifyPassword", mock.Anything, mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "VerifyPassword")
 }
 
-func TestLogin_InvalidCredentials(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+func TestLogin_MissingPassword(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
 
-	svc.On("VerifyPassword", mock.Anything, "john", "wrong").Return(false, nil).Once()
-
-	reqBody := LoginRequest{Login: "john", Password: "wrong"}
+	reqBody := map[string]string{"email": "user@example.com"}
 	jsonBody, _ := json.Marshal(reqBody)
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "VerifyPassword")
+}
+
+func TestLogin_InvalidEmailFormat(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
+
+	reqBody := LoginRequest{
+		Email:    "not-an-email",
+		Password: "Pass123",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "VerifyPassword")
+}
+
+func TestLogin_WrongPassword(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
+
+	reqBody := LoginRequest{
+		Email:    "user@example.com",
+		Password: "WrongPass",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "user@example.com", "WrongPass").
+		Return(false, accountService.ErrInvalidPassword).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid credentials", errResp["error"])
+
 	svc.AssertExpectations(t)
 }
 
-func TestLogin_VerifyPasswordError(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+func TestLogin_AccountNotFound(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
 
-	svc.On("VerifyPassword", mock.Anything, "john", "secret").Return(false, errors.New("db error")).Once()
-
-	reqBody := LoginRequest{Login: "john", Password: "secret"}
+	reqBody := LoginRequest{
+		Email:    "nonexistent@example.com",
+		Password: "Pass123",
+	}
 	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "nonexistent@example.com", "Pass123").
+		Return(false, accountService.ErrAccountNotFound).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusUnauthorized, w.Code) // handler returns 401 for any non-success
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "invalid credentials", errResp["error"])
+
 	svc.AssertExpectations(t)
 }
 
-func TestLogin_GetByLoginError(t *testing.T) {
-	svc := new(mockAccountService)
-	router := setupAuthRouter(svc)
+func TestLogin_InactiveAccount(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
 
-	svc.On("VerifyPassword", mock.Anything, "john", "secret").Return(true, nil).Once()
-	svc.On("GetByLogin", mock.Anything, "john").Return(nil, errors.New("not found")).Once()
-
-	reqBody := LoginRequest{Login: "john", Password: "secret"}
+	reqBody := LoginRequest{
+		Email:    "inactive@example.com",
+		Password: "Pass123",
+	}
 	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "inactive@example.com", "Pass123").
+		Return(false, accountService.ErrAccountInactive).Once()
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, req)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "account is inactive", errResp["error"])
+
+	svc.AssertExpectations(t)
+}
+
+func TestLogin_GetByEmailFails(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
+
+	reqBody := LoginRequest{
+		Email:    "user@example.com",
+		Password: "CorrectPass123",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "user@example.com", "CorrectPass123").
+		Return(true, nil).Once()
+	svc.On("GetByEmail", mock.Anything, "user@example.com").
+		Return(nil, errors.New("database error")).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	var errResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &errResp)
+	assert.Equal(t, "failed to retrieve account", errResp["error"])
+
+	svc.AssertExpectations(t)
+}
+
+func TestLogin_AdminRoleInToken(t *testing.T) {
+	r, svc := setupAuthHandlerTest()
+	accountID := uuid.New()
+
+	reqBody := LoginRequest{
+		Email:    "admin@example.com",
+		Password: "AdminPass123",
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	svc.On("VerifyPassword", mock.Anything, "admin@example.com", "AdminPass123").
+		Return(true, nil).Once()
+	svc.On("GetByEmail", mock.Anything, "admin@example.com").
+		Return(&account.Account{ID: accountID, Role: "admin"}, nil).Once()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/login", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp LoginResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Token)
+	assert.Equal(t, accountID.String(), resp.AccountID)
+
 	svc.AssertExpectations(t)
 }

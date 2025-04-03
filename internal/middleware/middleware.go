@@ -159,10 +159,12 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		allowOrigin := ""
 		allowCredentials := false
 
-		if len(allowedOrigins) == 0 || (len(allowedOrigins) == 1 && allowedOrigins[0] == "*") {
+		// If exactly one entry "*", allow all origins without credentials.
+		if len(allowedOrigins) == 1 && allowedOrigins[0] == "*" {
 			allowOrigin = "*"
 			allowCredentials = false
-		} else {
+		} else if len(allowedOrigins) > 0 {
+			// Otherwise check against the list.
 			for _, o := range allowedOrigins {
 				if o == origin {
 					allowOrigin = origin
@@ -171,6 +173,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 				}
 			}
 		}
+		// If allowedOrigins is empty, we leave allowOrigin empty (no CORS header).
 
 		if allowOrigin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
@@ -233,6 +236,11 @@ func ValidationErrorHandler() gin.HandlerFunc {
 			return
 		}
 
+		// If response already written, do nothing
+		if c.Writer.Written() {
+			return
+		}
+
 		var validationErrors []gin.H
 		for _, e := range c.Errors {
 			if ve, ok := e.Err.(validator.ValidationErrors); ok {
@@ -243,13 +251,14 @@ func ValidationErrorHandler() gin.HandlerFunc {
 					})
 				}
 			} else {
+				// For non-validation errors (e.g., JSON syntax), return a generic bad request
+				c.JSON(http.StatusBadRequest, gin.H{"error": e.Err.Error()})
 				return
 			}
 		}
 
 		if len(validationErrors) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"errors": validationErrors})
-			c.Abort()
 		}
 	}
 }

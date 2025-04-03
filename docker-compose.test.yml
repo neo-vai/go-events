@@ -7,3 +7,15 @@ services:
       POSTGRES_DB: eventtracker_test
     ports:
       - "5433:5432"
+
+  test-redis:
+    image: redis:8.6.2-alpine
+    command: redis-server --appendonly yes --requirepass redispass
+    ports:
+      - "6379:6379"
+
+  test-nats:
+    image: nats:2.10-alpine
+    command: "-js"
+    ports:
+      - "4222:4222"

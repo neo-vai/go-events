@@ -22,9 +22,7 @@ func createTestAccount(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	id := uuid.New()
 	acc := &account.Account{
 		ID:           id,
-		Name:         "Test",
 		Email:        uuid.New().String() + "@example.com",
-		Login:        uuid.New().String(),
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,

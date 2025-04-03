@@ -64,7 +64,13 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, ToAccountResponse(acc))
+	// Retrieve the full account to include role and active status in response
+	created, err := h.service.GetByID(c, acc.ID.String())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve created account"})
+		return
+	}
+	c.JSON(http.StatusCreated, ToAccountResponse(created))
 }
 
 // GetCurrentAccount godoc

@@ -180,7 +180,13 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 		c.JSON(status, gin.H{"error": msg})
 		return
 	}
-	c.JSON(http.StatusCreated, ToAccountResponse(acc))
+	// Retrieve the full account to include active status etc.
+	created, err := h.accountSvc.GetByID(c, acc.ID.String())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve created account"})
+		return
+	}
+	c.JSON(http.StatusCreated, ToAccountResponse(created))
 }
 
 // UpdateAccount godoc

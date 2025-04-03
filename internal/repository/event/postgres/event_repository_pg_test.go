@@ -23,9 +23,7 @@ func createTestAccount(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	id := uuid.New()
 	acc := &account.Account{
 		ID:           id,
-		Name:         "Test",
 		Email:        uuid.New().String() + "@example.com",
-		Login:        uuid.New().String(),
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -42,7 +40,7 @@ func createTestAPIKey(t *testing.T, pool *pgxpool.Pool, accountID uuid.UUID) str
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: accountID,
-		Key:       uuid.New().String(),
+		KeyHash:   uuid.New().String(),
 		Active:    true,
 		CreatedAt: time.Now(),
 	}

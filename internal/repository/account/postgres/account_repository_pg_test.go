@@ -24,9 +24,7 @@ func TestAccountRepository_Create(t *testing.T) {
 
 	acc := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Test User",
 		Email:        "test@example.com",
-		Login:        "testuser",
 		PasswordHash: "hashed",
 		Role:         "user",
 		Active:       true,
@@ -37,9 +35,7 @@ func TestAccountRepository_Create(t *testing.T) {
 
 	saved, err := repo.GetByID(ctx, acc.ID)
 	require.NoError(t, err)
-	assert.Equal(t, acc.Name, saved.Name)
 	assert.Equal(t, acc.Email, saved.Email)
-	assert.Equal(t, acc.Login, saved.Login)
 	assert.Equal(t, acc.PasswordHash, saved.PasswordHash)
 	assert.Equal(t, acc.Role, saved.Role)
 	assert.Equal(t, acc.Active, saved.Active)
@@ -53,9 +49,7 @@ func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
 	email := "duplicate@example.com"
 	acc1 := &account.Account{
 		ID:           uuid.New(),
-		Name:         "First",
 		Email:        email,
-		Login:        "login1",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -64,9 +58,7 @@ func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
 
 	acc2 := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Second",
 		Email:        email,
-		Login:        "login2",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -78,39 +70,6 @@ func TestAccountRepository_Create_DuplicateEmail(t *testing.T) {
 	assert.Equal(t, "23505", pgErr.Code) // unique_violation
 }
 
-func TestAccountRepository_Create_DuplicateLogin(t *testing.T) {
-	pool := testutil.SetupTestDB(t)
-	repo := NewAccountRepositoryPG(pool)
-	ctx := context.Background()
-
-	login := "duplicate_login"
-	acc1 := &account.Account{
-		ID:           uuid.New(),
-		Name:         "First",
-		Email:        "first@example.com",
-		Login:        login,
-		PasswordHash: "hash",
-		Role:         "user",
-		Active:       true,
-	}
-	require.NoError(t, repo.Create(ctx, acc1))
-
-	acc2 := &account.Account{
-		ID:           uuid.New(),
-		Name:         "Second",
-		Email:        "second@example.com",
-		Login:        login,
-		PasswordHash: "hash",
-		Role:         "user",
-		Active:       true,
-	}
-	err := repo.Create(ctx, acc2)
-	require.Error(t, err)
-	var pgErr *pgconn.PgError
-	assert.ErrorAs(t, err, &pgErr)
-	assert.Equal(t, "23505", pgErr.Code)
-}
-
 func TestAccountRepository_GetByID_NotFound(t *testing.T) {
 	pool := testutil.SetupTestDB(t)
 	repo := NewAccountRepositoryPG(pool)
@@ -120,16 +79,14 @@ func TestAccountRepository_GetByID_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestAccountRepository_GetByLogin(t *testing.T) {
+func TestAccountRepository_GetByEmail(t *testing.T) {
 	pool := testutil.SetupTestDB(t)
 	repo := NewAccountRepositoryPG(pool)
 	ctx := context.Background()
 
 	acc := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Login Test",
-		Email:        "login_test@example.com",
-		Login:        "findme",
+		Email:        "findme@example.com",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -137,11 +94,11 @@ func TestAccountRepository_GetByLogin(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, acc))
 
-	found, err := repo.GetByLogin(ctx, "findme")
+	found, err := repo.GetByEmail(ctx, "findme@example.com")
 	require.NoError(t, err)
 	assert.Equal(t, acc.ID, found.ID)
 
-	_, err = repo.GetByLogin(ctx, "notexist")
+	_, err = repo.GetByEmail(ctx, "notexist@example.com")
 	assert.Error(t, err)
 }
 
@@ -152,9 +109,7 @@ func TestAccountRepository_Update(t *testing.T) {
 
 	acc := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Old Name",
 		Email:        "old@example.com",
-		Login:        "oldlogin",
 		PasswordHash: "oldhash",
 		Role:         "user",
 		Active:       true,
@@ -162,13 +117,13 @@ func TestAccountRepository_Update(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, acc))
 
-	acc.Name = "New Name"
+	acc.Email = "new@example.com"
 	err := repo.Update(ctx, acc)
 	require.NoError(t, err)
 
 	updated, err := repo.GetByID(ctx, acc.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "New Name", updated.Name)
+	assert.Equal(t, "new@example.com", updated.Email)
 }
 
 func TestAccountRepository_Update_Conflict(t *testing.T) {
@@ -178,18 +133,14 @@ func TestAccountRepository_Update_Conflict(t *testing.T) {
 
 	acc1 := &account.Account{
 		ID:           uuid.New(),
-		Name:         "First",
 		Email:        "first@example.com",
-		Login:        "login_first",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
 	}
 	acc2 := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Second",
 		Email:        "second@example.com",
-		Login:        "login_second",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -212,9 +163,7 @@ func TestAccountRepository_Delete(t *testing.T) {
 
 	acc := &account.Account{
 		ID:           uuid.New(),
-		Name:         "To Delete",
 		Email:        "delete@example.com",
-		Login:        "delete",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -238,9 +187,7 @@ func TestAccountRepository_CascadeDelete(t *testing.T) {
 
 	acc := &account.Account{
 		ID:           uuid.New(),
-		Name:         "Cascade Test",
 		Email:        "cascade@example.com",
-		Login:        "cascade",
 		PasswordHash: "hash",
 		Role:         "user",
 		Active:       true,
@@ -250,7 +197,7 @@ func TestAccountRepository_CascadeDelete(t *testing.T) {
 	key := &apikey.APIKey{
 		ID:        uuid.New(),
 		AccountID: acc.ID,
-		Key:       "key-for-cascade",
+		KeyHash:   "key-for-cascade",
 		Active:    true,
 	}
 	require.NoError(t, apiKeyRepo.Create(ctx, key))
@@ -291,9 +238,7 @@ func TestAccountRepository_Update_NotFound(t *testing.T) {
 
 	acc := &account.Account{
 		ID:    uuid.New(),
-		Name:  "Ghost",
 		Email: "ghost@example.com",
-		Login: "ghost",
 	}
 	err := repo.Update(ctx, acc)
 	require.Error(t, err)
