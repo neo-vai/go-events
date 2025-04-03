@@ -27,6 +27,7 @@ import (
 	apikey_service "github.com/neo-vai/go-events/internal/service/apikey"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
 	"github.com/neo-vai/go-events/internal/validator"
+	ginprometheus "github.com/zsais/go-gin-prometheus"
 )
 
 // @title           Event Tracking API
@@ -144,6 +145,10 @@ func main() {
 		Auth:    authH,
 		Admin:   adminH,
 	}, apiKeyService, accountService, eventService, cfg, redisClient.Client(), publisher)
+
+	// Add Prometheus metrics middleware
+	p := ginprometheus.NewPrometheus("gin")
+	p.Use(router)
 
 	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		logger.Warn("failed to set trusted proxies", "error", err)
