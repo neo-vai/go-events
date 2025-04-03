@@ -41,24 +41,7 @@ func main() {
 		"broker_subject", cfg.BrokerSubject,
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		logger.Error("unable to parse database URL", "error", err)
-		os.Exit(1)
-	}
-	poolConfig.MaxConns = int32(cfg.DBMaxConns)
-	poolConfig.MinConns = int32(cfg.DBMinConns)
-	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		logger.Error("unable to connect to database", "error", err)
-		os.Exit(1)
-	}
+	pool := connectPostgresWithRetry(logger, cfg)
 	defer pool.Close()
 
 	eventRepo := event_repository_pg.NewEventRepositoryPG(pool)
@@ -92,4 +75,59 @@ func main() {
 	logger.Info("shutting down worker...")
 	time.Sleep(2 * time.Second)
 	logger.Info("worker exited")
+}
+
+// connectPostgresWithRetry attempts to connect to PostgreSQL with retries.
+func connectPostgresWithRetry(logger *slog.Logger, cfg *config.Config) *pgxpool.Pool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("unable to parse database URL", "error", err)
+		os.Exit(1)
+	}
+	poolConfig.MaxConns = int32(cfg.DBMaxConns)
+	poolConfig.MinConns = int32(cfg.DBMinConns)
+	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+
+	var pool *pgxpool.Pool
+	err = retryConnect(ctx, func() error {
+		var err error
+		pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
+		return err
+	}, logger, "PostgreSQL")
+	if err != nil {
+		logger.Error("failed to connect to PostgreSQL after retries", "error", err)
+		os.Exit(1)
+	}
+	return pool
+}
+
+// retryConnect executes a connect function with exponential backoff until success or context timeout.
+func retryConnect(ctx context.Context, connectFn func() error, logger *slog.Logger, service string) error {
+	backoff := 100 * time.Millisecond
+	for {
+		err := connectFn()
+		if err == nil {
+			logger.Info("connected to service", "service", service)
+			return nil
+		}
+		logger.Warn("failed to connect to service, retrying...",
+			"service", service,
+			"error", err,
+			"next_attempt_in", backoff,
+		)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second
+			}
+		}
+	}
 }

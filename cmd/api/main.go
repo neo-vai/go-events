@@ -68,49 +68,13 @@ func main() {
 		"log_level", cfg.LogLevel,
 	)
 
-	// Connect to Redis
-	redisClient, err := cache.NewRedisClient(
-		cfg.RedisURL,
-		cfg.RedisPassword,
-		cfg.RedisDB,
-		cfg.RedisMaxRetries,
-		cfg.RedisPoolSize,
-		cfg.RedisMinIdleConns,
-		cfg.RedisDialTimeout,
-		cfg.RedisReadTimeout,
-		cfg.RedisWriteTimeout,
-		cfg.RedisPoolTimeout,
-		cfg.RedisIdleTimeout,
-	)
-	if err != nil {
-		logger.Error("failed to initialize Redis client", "error", err)
-		os.Exit(1)
-	}
+	pool := connectPostgresWithRetry(logger, cfg)
+
+	redisClient := connectRedisWithRetry(logger, cfg)
 	defer redisClient.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		logger.Error("unable to parse database URL", "error", err)
-		os.Exit(1)
-	}
-	poolConfig.MaxConns = int32(cfg.DBMaxConns)
-	poolConfig.MinConns = int32(cfg.DBMinConns)
-	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		logger.Error("unable to connect to database", "error", err)
-		os.Exit(1)
-	}
-	defer pool.Close()
 
 	validator.RegisterCustomValidators()
 
-	// Initialize broker client and publisher
 	brokerClient, err := broker.NewNATSClient(cfg.BrokerURL, cfg.BrokerJetStreamEnabled)
 	if err != nil {
 		logger.Error("failed to connect to broker", "error", err)
@@ -184,6 +148,92 @@ func main() {
 		logger.Error("server forced to shutdown", "error", err)
 	}
 	logger.Info("server exited properly")
+}
+
+// connectPostgresWithRetry attempts to connect to PostgreSQL with retries.
+// It exits the application if the connection cannot be established within the timeout.
+func connectPostgresWithRetry(logger *slog.Logger, cfg *config.Config) *pgxpool.Pool {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("unable to parse database URL", "error", err)
+		os.Exit(1)
+	}
+	poolConfig.MaxConns = int32(cfg.DBMaxConns)
+	poolConfig.MinConns = int32(cfg.DBMinConns)
+	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+
+	var pool *pgxpool.Pool
+	err = retryConnect(ctx, func() error {
+		var err error
+		pool, err = pgxpool.NewWithConfig(ctx, poolConfig)
+		return err
+	}, logger, "PostgreSQL")
+	if err != nil {
+		logger.Error("failed to connect to PostgreSQL after retries", "error", err)
+		os.Exit(1)
+	}
+	return pool
+}
+
+// connectRedisWithRetry attempts to connect to Redis with retries.
+func connectRedisWithRetry(logger *slog.Logger, cfg *config.Config) *cache.RedisClient {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var redisClient *cache.RedisClient
+	err := retryConnect(ctx, func() error {
+		var err error
+		redisClient, err = cache.NewRedisClient(
+			cfg.RedisURL,
+			cfg.RedisPassword,
+			cfg.RedisDB,
+			cfg.RedisMaxRetries,
+			cfg.RedisPoolSize,
+			cfg.RedisMinIdleConns,
+			cfg.RedisDialTimeout,
+			cfg.RedisReadTimeout,
+			cfg.RedisWriteTimeout,
+			cfg.RedisPoolTimeout,
+			cfg.RedisIdleTimeout,
+		)
+		return err
+	}, logger, "Redis")
+	if err != nil {
+		logger.Error("failed to connect to Redis after retries", "error", err)
+		os.Exit(1)
+	}
+	return redisClient
+}
+
+// retryConnect executes a connect function with exponential backoff until success or context timeout.
+func retryConnect(ctx context.Context, connectFn func() error, logger *slog.Logger, service string) error {
+	backoff := 100 * time.Millisecond
+	for {
+		err := connectFn()
+		if err == nil {
+			logger.Info("connected to service", "service", service)
+			return nil
+		}
+		logger.Warn("failed to connect to service, retrying...",
+			"service", service,
+			"error", err,
+			"next_attempt_in", backoff,
+		)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+			backoff *= 2
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second
+			}
+		}
+	}
 }
 
 type simpleStatsService struct {

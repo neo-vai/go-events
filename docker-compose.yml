@@ -1,6 +1,7 @@
 services:
   go-events:
     build: .
+    restart: unless-stopped
     expose:
       - "8080"
     env_file:
@@ -9,26 +10,28 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    restart: unless-stopped
     env_file:
       - .env
     depends_on:
       db:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
     deploy:
       replicas: 2
 
   db:
     image: postgres:18.3-alpine3.23
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -46,25 +49,33 @@ services:
 
   redis:
     image: redis:8.6.2-alpine
+    restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   nats:
     image: nats:2.10-alpine
+    restart: unless-stopped
     command: "-js"
+    healthcheck:
+      test: ["CMD", "nats", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - "4222:4222"
 
   nginx:
     image: nginx:1.29.8-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
@@ -76,6 +87,7 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
@@ -85,6 +97,7 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    restart: unless-stopped
     ports:
       - "3001:3000"
     environment:
