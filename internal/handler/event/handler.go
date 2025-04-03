@@ -13,13 +13,14 @@ import (
 	"github.com/neo-vai/go-events/internal/broker"
 	"github.com/neo-vai/go-events/internal/middleware"
 	"github.com/neo-vai/go-events/internal/model/event"
+	"github.com/neo-vai/go-events/internal/pagination"
 	event_service "github.com/neo-vai/go-events/internal/service/event"
 )
 
 type EventService interface {
 	GetByID(ctx context.Context, id string) (*event.Event, error)
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
-	ListEventsPaginated(ctx context.Context, accountID string, page, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error)
+	ListEventsPaginated(ctx context.Context, accountID string, offset, limit int, sort, order, username, apiKeyID, searchQuery string) ([]*event.Event, int64, error)
 }
 
 type Handler struct {
@@ -91,35 +92,33 @@ func (h *Handler) CreateEvent(c *gin.Context) {
 }
 
 // setContentRangeHeader sets the Content-Range header for paginated responses.
-func setContentRangeHeader(c *gin.Context, resource string, page, limit int, total int64) {
-	start := (page - 1) * limit
-	end := start + limit - 1
+func setContentRangeHeader(c *gin.Context, resource string, offset, limit int, total int64) {
 	if total == 0 {
 		c.Header("Content-Range", fmt.Sprintf("%s */0", resource))
 		return
 	}
+	end := offset + limit - 1
 	if int64(end) >= total {
 		end = int(total) - 1
 	}
-	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, start, end, total))
+	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, offset, end, total))
 }
 
 // ListEvents godoc
 // @Summary      List events with optional filters and pagination
+// @Description  Returns a paginated list of events for the authenticated account.
 // @Tags         event
 // @Produce      json
-// @Param        page        query int    false "Page number (starts from 1)"
-// @Param        limit       query int    false "Items per page (default 20, max 100)"
-// @Param        sort        query string false "Sort field (createdAt, username, name)"
-// @Param        order       query string false "Sort order (ASC, DESC)"
-// @Param        user        query string false "Filter by username"
-// @Param        api_key_id  query string false "Filter by API key ID"
-// @Param        q           query string false "Search query (username, name, payload)"
-// @Success      200 {array} EventResponse
-// @Header       200 {string} Content-Range "resources start-end/total"
-// @Header       200 {integer} X-Total-Count "Total number of items"
-// @Failure      401 {object} map[string]interface{}
-// @Failure      500 {object} map[string]interface{}
+// @Param        _start     query   int     false  "Start index (0-based)"
+// @Param        _end       query   int     false  "End index (exclusive)"
+// @Param        _sort      query   string  false  "Sort field (id, createdAt, username, name)"
+// @Param        _order     query   string  false  "Sort order (ASC, DESC)"
+// @Param        filter     query   string  false  "JSON filter: {q, username, api_key_id}"
+// @Success      200        {array} EventResponse
+// @Header       200        {string} Content-Range "resources start-end/total"
+// @Header       200        {integer} X-Total-Count "Total number of items"
+// @Failure      401        {object} map[string]interface{}
+// @Failure      500        {object} map[string]interface{}
 // @Security     BearerAuth
 // @Security     ApiKeyAuth
 // @Router       /events [get]
@@ -131,23 +130,30 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	}
 	accountID := authenticatedAccountID.(string)
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	params, err := pagination.ParseReactAdminParams(c)
+	if err != nil {
+		return // error response already sent
+	}
 
-	sort := c.DefaultQuery("sort", "createdAt")
-	order := c.DefaultQuery("order", "DESC")
-
-	username := c.Query("user")
-	apiKeyID := c.Query("api_key_id")
-	searchQuery := c.Query("q")
+	// Extract filter fields from parsed filters
+	var username, apiKeyID, searchQuery string
+	if val, ok := params.Filters["username"].(string); ok {
+		username = val
+	}
+	if val, ok := params.Filters["api_key_id"].(string); ok {
+		apiKeyID = val
+	}
+	if val, ok := params.Filters["q"].(string); ok {
+		searchQuery = val
+	}
 
 	events, total, err := h.service.ListEventsPaginated(
 		c.Request.Context(),
 		accountID,
-		page,
-		limit,
-		sort,
-		order,
+		params.Offset,
+		params.Limit,
+		params.SortField,
+		params.SortOrder,
 		username,
 		apiKeyID,
 		searchQuery,
@@ -163,7 +169,7 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	}
 
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
-	setContentRangeHeader(c, "events", page, limit, total)
+	setContentRangeHeader(c, "events", params.Offset, params.Limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 

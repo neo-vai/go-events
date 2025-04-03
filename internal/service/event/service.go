@@ -26,7 +26,7 @@ type EventRepository interface {
 	GetByAccountID(ctx context.Context, accountID string) ([]*event.Event, error)
 	GetByAccountAndUser(ctx context.Context, accountID, username string) ([]*event.Event, error)
 	GetByAPIKeyID(ctx context.Context, apiKeyID string) ([]*event.Event, error)
-	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
+	ListAll(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
 }
 
 type EventService struct {
@@ -87,26 +87,24 @@ func (s *EventService) GetByID(ctx context.Context, id string) (*event.Event, er
 	return ev, nil
 }
 
-// ListEvents is a legacy method for backward compatibility.
+// ListEvents is a legacy method for backward compatibility (used by worker? no, but keep for now).
 // It returns up to 1000 most recent events for the account.
 func (s *EventService) ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error) {
-	events, _, err := s.ListEventsPaginated(ctx, accountID, 1, 1000, "created_at", "DESC", username, apiKeyID, "")
+	events, _, err := s.ListEventsPaginated(ctx, accountID, 0, 1000, "created_at", "DESC", username, apiKeyID, "")
 	return events, err
 }
 
+// ListEventsPaginated retrieves events for a specific account with pagination and filters.
 func (s *EventService) ListEventsPaginated(
 	ctx context.Context,
 	accountID string,
-	page, limit int,
+	offset, limit int,
 	sort, order string,
 	username, apiKeyID, searchQuery string,
 ) ([]*event.Event, int64, error) {
 	const defaultLimit = 20
 	const maxLimit = 100
 
-	if page < 1 {
-		page = 1
-	}
 	if limit <= 0 {
 		limit = defaultLimit
 	}
@@ -127,7 +125,9 @@ func (s *EventService) ListEventsPaginated(
 		filters["q"] = searchQuery
 	}
 
+	// Map sort field names to database column names
 	sortMap := map[string]string{
+		"id":        "id",
 		"createdAt": "created_at",
 		"username":  "username",
 		"name":      "name",
@@ -141,21 +141,19 @@ func (s *EventService) ListEventsPaginated(
 		order = "DESC"
 	}
 
-	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
+	return s.repo.ListAll(ctx, offset, limit, sort, order, filters)
 }
 
+// ListAllEvents returns all events (admin) with pagination and filters.
 func (s *EventService) ListAllEvents(
 	ctx context.Context,
-	page, limit int,
+	offset, limit int,
 	sort, order string,
 	filters map[string]interface{},
 ) ([]*event.Event, int64, error) {
 	const defaultLimit = 20
 	const maxLimit = 100
 
-	if page < 1 {
-		page = 1
-	}
 	if limit <= 0 {
 		limit = defaultLimit
 	}
@@ -164,6 +162,7 @@ func (s *EventService) ListAllEvents(
 	}
 
 	sortMap := map[string]string{
+		"id":        "id",
 		"createdAt": "created_at",
 		"username":  "username",
 		"name":      "name",
@@ -177,5 +176,5 @@ func (s *EventService) ListAllEvents(
 		order = "DESC"
 	}
 
-	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
+	return s.repo.ListAll(ctx, offset, limit, sort, order, filters)
 }

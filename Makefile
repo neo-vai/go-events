@@ -1,5 +1,3 @@
-# Makefile for Event Tracker Service
-
 ifneq (,$(wildcard ./.env))
     include .env
     export
@@ -22,17 +20,15 @@ help:
 	@echo "Available commands:"
 	@echo "  make admin-build   - Build admin panel static files"
 	@echo "  make rebuild-admin - Force rebuild admin panel"
-	@echo "  make build         - Build Go binaries (api + worker)"
-	@echo "  make build-api     - Build only API binary"
-	@echo "  make build-worker  - Build only worker binary"
-	@echo "  make clean         - Remove Go binaries"
-	@echo "  make up            - Start all services (auto-builds admin if missing)"
+	@echo "  make build         - Build Docker images"
+	@echo "  make up            - Start all services"
 	@echo "  make down          - Stop all services"
 	@echo "  make logs          - Follow logs of all services"
-	@echo "  make run           - Run API locally (without Docker)"
+	@echo "  make dev           - Run API locally (without Docker)"
 	@echo "  make test          - Run all tests (with test database)"
 	@echo "  make migrate-up    - Apply database migrations"
 	@echo "  make migrate-down  - Rollback migrations"
+	@echo "  make swagger       - Generate Swagger documentation"
 
 .PHONY: admin-build
 admin-build:
@@ -42,23 +38,10 @@ admin-build:
 .PHONY: rebuild-admin
 rebuild-admin: admin-build
 
-.PHONY: build-api
-build-api:
-	@echo "Building API binary..."
-	go build -o app ./cmd/api
-
-.PHONY: build-worker
-build-worker:
-	@echo "Building worker binary..."
-	go build -o worker ./cmd/worker
-
 .PHONY: build
-build: build-api build-worker
-
-.PHONY: clean
-clean:
-	@echo "Removing Go binaries..."
-	rm -f app worker
+build:
+	@echo "Building Docker images..."
+	$(DOCKER_COMPOSE) build
 
 .PHONY: up
 up:
@@ -78,8 +61,8 @@ down:
 logs:
 	$(DOCKER_COMPOSE) logs -f
 
-.PHONY: run
-run:
+.PHONY: dev
+dev:
 	go run ./cmd/api
 
 .PHONY: test
@@ -105,3 +88,8 @@ migrate-up:
 migrate-down:
 	@echo "Rolling back migrations..."
 	migrate -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" down
+
+.PHONY: swagger
+swagger:
+	@echo "Generating Swagger documentation..."
+	swag init -g ./cmd/api/main.go -o ./docs

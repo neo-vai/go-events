@@ -13,5 +13,5 @@ type AccountRepository interface {
 	GetByLogin(ctx context.Context, login string) (*account.Account, error)
 	Update(ctx context.Context, account *account.Account) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
+	List(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
 }

@@ -64,7 +64,7 @@ type AccountRepository interface {
 	GetByLogin(ctx context.Context, login string) (*account.Account, error)
 	Update(ctx context.Context, account *account.Account) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	List(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
+	List(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
 }
 
 // AccountService handles business logic for accounts.
@@ -192,14 +192,11 @@ func (s *AccountService) GetByLogin(ctx context.Context, login string) (*account
 // Admin methods
 
 // ListAccounts returns a paginated list of accounts with filters.
-func (s *AccountService) ListAccounts(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
-	if page < 1 {
-		page = 1
+func (s *AccountService) ListAccounts(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
-	if limit < 1 || limit > 100 {
-		limit = 10
-	}
-	return s.repo.List(ctx, page, limit, sort, order, filters)
+	return s.repo.List(ctx, offset, limit, sort, order, filters)
 }
 
 // UpdateAccountAdmin updates any account fields (including role and active) by admin.

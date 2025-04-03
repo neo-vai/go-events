@@ -11,6 +11,7 @@ import (
 	"github.com/neo-vai/go-events/internal/model/account"
 	"github.com/neo-vai/go-events/internal/model/apikey"
 	"github.com/neo-vai/go-events/internal/model/event"
+	"github.com/neo-vai/go-events/internal/pagination"
 )
 
 type AccountService interface {
@@ -18,20 +19,20 @@ type AccountService interface {
 	GetByID(ctx context.Context, id string) (*account.Account, error)
 	UpdateAccountAdmin(ctx context.Context, id string, updates map[string]interface{}) (*account.Account, error)
 	DeleteAccount(ctx context.Context, id string) error
-	ListAccounts(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
+	ListAccounts(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error)
 }
 
 type EventService interface {
 	GetByID(ctx context.Context, id string) (*event.Event, error)
 	ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error)
-	ListAllEvents(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
+	ListAllEvents(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error)
 }
 
 type APIKeyService interface {
 	GetByID(ctx context.Context, id string) (*apikey.APIKey, error)
 	UpdateActive(ctx context.Context, id string, active bool) error
 	Delete(ctx context.Context, id string) error
-	ListAllAPIKeys(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
+	ListAllAPIKeys(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
 }
 
 type StatsService interface {
@@ -60,17 +61,16 @@ func NewHandler(
 }
 
 // setContentRangeHeader sets the Content-Range header for paginated responses.
-func setContentRangeHeader(c *gin.Context, resource string, page, limit int, total int64) {
-	start := (page - 1) * limit
-	end := start + limit - 1
+func setContentRangeHeader(c *gin.Context, resource string, offset, limit int, total int64) {
 	if total == 0 {
 		c.Header("Content-Range", fmt.Sprintf("%s */0", resource))
 		return
 	}
+	end := offset + limit - 1
 	if int64(end) >= total {
 		end = int(total) - 1
 	}
-	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, start, end, total))
+	c.Header("Content-Range", fmt.Sprintf("%s %d-%d/%d", resource, offset, end, total))
 }
 
 // ---------- Accounts ----------
@@ -79,24 +79,23 @@ func setContentRangeHeader(c *gin.Context, resource string, page, limit int, tot
 // @Summary List all accounts (admin)
 // @Tags admin
 // @Produce json
-// @Param _page query int false "Page number"
-// @Param _limit query int false "Items per page"
-// @Param _sort query string false "Sort field"
+// @Param _start query int false "Start index (0-based)"
+// @Param _end query int false "End index (exclusive)"
+// @Param _sort query string false "Sort field (id, name, email, login, role, active, createdAt)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param _q query string false "Search query"
-// @Param role query string false "Filter by role"
-// @Param active query bool false "Filter by active status"
+// @Param filter query string false "JSON filter: {q, role, active}"
 // @Success 200 {array} AccountResponse
 // @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count "Total number of items"
 // @Security BearerAuth
 // @Router /admin/accounts [get]
 func (h *Handler) ListAccounts(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("_page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "10"))
-	sort := c.DefaultQuery("_sort", "createdAt")
-	order := c.DefaultQuery("_order", "DESC")
+	params, err := pagination.ParseReactAdminParams(c)
+	if err != nil {
+		return
+	}
 
+	// Map sort field names to database column names
 	sortMap := map[string]string{
 		"id":        "id",
 		"name":      "name",
@@ -106,28 +105,18 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 		"active":    "active",
 		"createdAt": "created_at",
 	}
+	sort := params.SortField
 	if dbSort, ok := sortMap[sort]; ok {
 		sort = dbSort
 	} else {
 		sort = "created_at"
 	}
+	order := params.SortOrder
 	if order != "ASC" && order != "DESC" {
 		order = "DESC"
 	}
 
-	filters := make(map[string]interface{})
-	if q := c.Query("_q"); q != "" {
-		filters["q"] = q
-	}
-	if role := c.Query("role"); role != "" {
-		filters["role"] = role
-	}
-	if activeStr := c.Query("active"); activeStr != "" {
-		active, _ := strconv.ParseBool(activeStr)
-		filters["active"] = active
-	}
-
-	accounts, total, err := h.accountSvc.ListAccounts(c, page, limit, sort, order, filters)
+	accounts, total, err := h.accountSvc.ListAccounts(c, params.Offset, params.Limit, sort, order, params.Filters)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -138,7 +127,7 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 		resp[i] = ToAccountResponse(acc)
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
-	setContentRangeHeader(c, "accounts", page, limit, total)
+	setContentRangeHeader(c, "accounts", params.Offset, params.Limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -273,36 +262,23 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 // @Summary List all events (admin)
 // @Tags admin
 // @Produce json
-// @Param _page query int false "Page number"
-// @Param _limit query int false "Items per page (default 20, max 100)"
-// @Param _sort query string false "Sort field (createdAt, username, name)"
+// @Param _start query int false "Start index (0-based)"
+// @Param _end query int false "End index (exclusive)"
+// @Param _sort query string false "Sort field (id, createdAt, username, name)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param _q query string false "Search query"
-// @Param account_id query string false "Filter by account ID"
-// @Param api_key_id query string false "Filter by API key ID"
+// @Param filter query string false "JSON filter: {q, account_id, api_key_id}"
 // @Success 200 {array} EventResponse
 // @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("_page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "20"))
-	sort := c.DefaultQuery("_sort", "createdAt")
-	order := c.DefaultQuery("_order", "DESC")
-
-	filters := make(map[string]interface{})
-	if q := c.Query("_q"); q != "" {
-		filters["q"] = q
-	}
-	if accountID := c.Query("account_id"); accountID != "" {
-		filters["account_id"] = accountID
-	}
-	if apiKeyID := c.Query("api_key_id"); apiKeyID != "" {
-		filters["api_key_id"] = apiKeyID
+	params, err := pagination.ParseReactAdminParams(c)
+	if err != nil {
+		return
 	}
 
-	events, total, err := h.eventSvc.ListAllEvents(c, page, limit, sort, order, filters)
+	events, total, err := h.eventSvc.ListAllEvents(c, params.Offset, params.Limit, params.SortField, params.SortOrder, params.Filters)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -313,7 +289,7 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		resp[i] = ToEventResponse(ev, "") // accountName omitted for simplicity
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
-	setContentRangeHeader(c, "events", page, limit, total)
+	setContentRangeHeader(c, "events", params.Offset, params.Limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -341,37 +317,23 @@ func (h *Handler) GetEvent(c *gin.Context) {
 // @Summary List all API keys (admin)
 // @Tags admin
 // @Produce json
-// @Param _page query int false "Page number"
-// @Param _limit query int false "Items per page"
-// @Param _sort query string false "Sort field"
+// @Param _start query int false "Start index (0-based)"
+// @Param _end query int false "End index (exclusive)"
+// @Param _sort query string false "Sort field (id, createdAt, active)"
 // @Param _order query string false "Sort order (ASC/DESC)"
-// @Param _q query string false "Search query"
-// @Param account_id query string false "Filter by account ID"
-// @Param active query bool false "Filter by active status"
+// @Param filter query string false "JSON filter: {account_id, active}"
 // @Success 200 {array} APIKeyResponse
 // @Header 200 {string} Content-Range "resources start-end/total"
 // @Header 200 {integer} X-Total-Count
 // @Security BearerAuth
 // @Router /admin/api-keys [get]
 func (h *Handler) ListAPIKeys(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("_page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "10"))
-	sort := c.DefaultQuery("_sort", "createdAt")
-	order := c.DefaultQuery("_order", "DESC")
-
-	filters := make(map[string]interface{})
-	if q := c.Query("_q"); q != "" {
-		filters["q"] = q
-	}
-	if accountID := c.Query("account_id"); accountID != "" {
-		filters["account_id"] = accountID
-	}
-	if activeStr := c.Query("active"); activeStr != "" {
-		active, _ := strconv.ParseBool(activeStr)
-		filters["active"] = active
+	params, err := pagination.ParseReactAdminParams(c)
+	if err != nil {
+		return
 	}
 
-	keys, total, err := h.apiKeySvc.ListAllAPIKeys(c, page, limit, sort, order, filters)
+	keys, total, err := h.apiKeySvc.ListAllAPIKeys(c, params.Offset, params.Limit, params.SortField, params.SortOrder, params.Filters)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -382,7 +344,7 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 		resp[i] = ToAPIKeyResponse(key, "")
 	}
 	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
-	setContentRangeHeader(c, "api-keys", page, limit, total)
+	setContentRangeHeader(c, "api-keys", params.Offset, params.Limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 

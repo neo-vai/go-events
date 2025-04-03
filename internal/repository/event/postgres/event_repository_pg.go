@@ -163,15 +163,14 @@ func (r *EventRepositoryPG) GetByAPIKeyID(ctx context.Context, apiKeyID string) 
 	return events, nil
 }
 
-// ListAll retrieves events with pagination, sorting, and filtering.
-func (r *EventRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error) {
+// ListAll retrieves events with offset, limit, sorting, and filtering.
+func (r *EventRepositoryPG) ListAll(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	if page < 1 {
-		page = 1
+	if limit > 100 {
+		limit = 100
 	}
-	offset := (page - 1) * limit
 
 	baseQuery := `
 		SELECT id, account_id, username, api_key_id, name, payload, created_at
@@ -221,7 +220,9 @@ func (r *EventRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, 
 		countQuery += " AND " + strings.Join(whereClauses, " AND ")
 	}
 
-	allowedSortFields := map[string]bool{"created_at": true, "username": true, "name": true}
+	allowedSortFields := map[string]bool{
+		"id": true, "created_at": true, "username": true, "name": true,
+	}
 	if sort != "" && allowedSortFields[sort] {
 		orderDir := "ASC"
 		if strings.ToUpper(order) == "DESC" {

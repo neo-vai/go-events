@@ -33,7 +33,7 @@ type APIKeyRepository interface {
 	GetByKeyHash(ctx context.Context, keyHash string) (*apikey.APIKey, error)
 	Update(ctx context.Context, key *apikey.APIKey) error
 	Delete(ctx context.Context, id uuid.UUID) error
-	ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
+	ListAll(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error)
 }
 
 type APIKeyService struct {
@@ -211,14 +211,14 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, plainKey string) (ac
 	return apiKey.AccountID.String(), "", apiKey.ID.String(), nil
 }
 
-func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
-	if page < 1 {
-		page = 1
+// ListAllAPIKeys returns a paginated list of all API keys (admin).
+func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
-	if limit < 1 || limit > 100 {
-		limit = 10
-	}
+	// Map sort field names to database column names
 	sortMap := map[string]string{
+		"id":        "id",
 		"createdAt": "created_at",
 		"active":    "active",
 	}
@@ -227,5 +227,8 @@ func (s *APIKeyService) ListAllAPIKeys(ctx context.Context, page, limit int, sor
 	} else {
 		sort = "created_at"
 	}
-	return s.repo.ListAll(ctx, page, limit, sort, order, filters)
+	if order != "ASC" && order != "DESC" {
+		order = "DESC"
+	}
+	return s.repo.ListAll(ctx, offset, limit, sort, order, filters)
 }

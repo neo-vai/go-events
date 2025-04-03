@@ -83,11 +83,9 @@ func (r *AccountRepositoryPG) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// List retrieves accounts with pagination, sorting, and filtering.
-// filters map supports: "role", "active", "q" (search in name, email, login).
-func (r *AccountRepositoryPG) List(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
-	offset := (page - 1) * limit
-
+// List retrieves accounts with offset, limit, sorting, and filtering.
+// filters map supports: "q" (search in name, email, login), "role", "active".
+func (r *AccountRepositoryPG) List(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*account.Account, int64, error) {
 	// Base query
 	baseQuery := `
 		SELECT id, name, email, login, password_hash, role, active, created_at
@@ -124,7 +122,10 @@ func (r *AccountRepositoryPG) List(ctx context.Context, page, limit int, sort, o
 	}
 
 	// Sorting
-	allowedSortFields := map[string]bool{"name": true, "email": true, "login": true, "role": true, "active": true, "created_at": true}
+	allowedSortFields := map[string]bool{
+		"id": true, "name": true, "email": true, "login": true,
+		"role": true, "active": true, "created_at": true,
+	}
 	if sort != "" && allowedSortFields[sort] {
 		orderDir := "ASC"
 		if strings.ToUpper(order) == "DESC" {
@@ -140,7 +141,8 @@ func (r *AccountRepositoryPG) List(ctx context.Context, page, limit int, sort, o
 
 	// Execute count query
 	var total int64
-	err := r.db.QueryRow(ctx, countQuery, args[:argIdx-1]...).Scan(&total)
+	countArgs := args[:argIdx-1]
+	err := r.db.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}

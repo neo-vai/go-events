@@ -104,8 +104,13 @@ func (r *APIKeyRepositoryPG) GetByKeyHash(ctx context.Context, keyHash string) (
 	return ak, nil
 }
 
-func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
-	offset := (page - 1) * limit
+func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, offset, limit int, sort, order string, filters map[string]interface{}) ([]*apikey.APIKey, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
 
 	baseQuery := `
 		SELECT id, account_id, key_hash, active, created_at
@@ -118,32 +123,28 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 	argIdx := 1
 	var whereClauses []string
 
-	// Note: search by q now uses key_hash prefix? We cannot search by plain key anymore.
-	// For admin, we might want to search by account name instead. We'll keep q as is (search in key_hash? not useful).
-	// We'll skip searching by key for now.
-	if q, ok := filters["q"].(string); ok && q != "" {
-		// Could search by key_hash prefix, but that's rarely needed. Omit.
-		// Alternatively, we could join with accounts and search by account name/email.
-		// For simplicity, we ignore q for API keys.
-		_ = q
-	}
+	// Filter by account_id
 	if accountID, ok := filters["account_id"].(string); ok && accountID != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
 		args = append(args, accountID)
 		argIdx++
 	}
+	// Filter by active status
 	if active, ok := filters["active"].(bool); ok {
 		whereClauses = append(whereClauses, fmt.Sprintf("active = $%d", argIdx))
 		args = append(args, active)
 		argIdx++
 	}
+	// Note: searching by q is not implemented for API keys; could be added if needed.
 
 	if len(whereClauses) > 0 {
 		baseQuery += " AND " + strings.Join(whereClauses, " AND ")
 		countQuery += " AND " + strings.Join(whereClauses, " AND ")
 	}
 
-	allowedSortFields := map[string]bool{"created_at": true, "active": true}
+	allowedSortFields := map[string]bool{
+		"id": true, "created_at": true, "active": true,
+	}
 	if sort != "" && allowedSortFields[sort] {
 		orderDir := "ASC"
 		if strings.ToUpper(order) == "DESC" {
@@ -158,7 +159,8 @@ func (r *APIKeyRepositoryPG) ListAll(ctx context.Context, page, limit int, sort,
 	args = append(args, limit, offset)
 
 	var total int64
-	err := r.db.QueryRow(ctx, countQuery, args[:argIdx-1]...).Scan(&total)
+	countArgs := args[:argIdx-1]
+	err := r.db.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
