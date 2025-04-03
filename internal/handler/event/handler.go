@@ -109,7 +109,7 @@ func setContentRangeHeader(c *gin.Context, resource string, page, limit int, tot
 // @Tags         event
 // @Produce      json
 // @Param        page        query int    false "Page number (starts from 1)"
-// @Param        limit       query int    false "Items per page (max 1000)"
+// @Param        limit       query int    false "Items per page (default 20, max 100)"
 // @Param        sort        query string false "Sort field (createdAt, username, name)"
 // @Param        order       query string false "Sort order (ASC, DESC)"
 // @Param        user        query string false "Filter by username"
@@ -117,7 +117,7 @@ func setContentRangeHeader(c *gin.Context, resource string, page, limit int, tot
 // @Param        q           query string false "Search query (username, name, payload)"
 // @Success      200 {array} EventResponse
 // @Header       200 {string} Content-Range "resources start-end/total"
-// @Header       200 {integer} X-Total-Count "Total number of items (only when paginated)"
+// @Header       200 {integer} X-Total-Count "Total number of items"
 // @Failure      401 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
 // @Security     BearerAuth
@@ -132,7 +132,7 @@ func (h *Handler) ListEvents(c *gin.Context) {
 	accountID := authenticatedAccountID.(string)
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	sort := c.DefaultQuery("sort", "createdAt")
 	order := c.DefaultQuery("order", "DESC")
@@ -162,10 +162,8 @@ func (h *Handler) ListEvents(c *gin.Context) {
 		resp[i] = ToEventResponse(ev)
 	}
 
-	if limit > 0 {
-		c.Header("X-Total-Count", strconv.FormatInt(total, 10))
-		setContentRangeHeader(c, "events", page, limit, total)
-	}
+	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+	setContentRangeHeader(c, "events", page, limit, total)
 	c.JSON(http.StatusOK, resp)
 }
 

@@ -274,8 +274,8 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 // @Tags admin
 // @Produce json
 // @Param _page query int false "Page number"
-// @Param _limit query int false "Items per page"
-// @Param _sort query string false "Sort field"
+// @Param _limit query int false "Items per page (default 20, max 100)"
+// @Param _sort query string false "Sort field (createdAt, username, name)"
 // @Param _order query string false "Sort order (ASC/DESC)"
 // @Param _q query string false "Search query"
 // @Param account_id query string false "Filter by account ID"
@@ -287,7 +287,7 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 // @Router /admin/events [get]
 func (h *Handler) ListEvents(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("_page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "10"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("_limit", "20"))
 	sort := c.DefaultQuery("_sort", "createdAt")
 	order := c.DefaultQuery("_order", "DESC")
 

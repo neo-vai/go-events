@@ -88,8 +88,9 @@ func (s *EventService) GetByID(ctx context.Context, id string) (*event.Event, er
 }
 
 // ListEvents is a legacy method for backward compatibility.
+// It returns up to 1000 most recent events for the account.
 func (s *EventService) ListEvents(ctx context.Context, accountID, username, apiKeyID string) ([]*event.Event, error) {
-	events, _, err := s.ListEventsPaginated(ctx, accountID, 1, 0, "", "", username, apiKeyID, "")
+	events, _, err := s.ListEventsPaginated(ctx, accountID, 1, 1000, "created_at", "DESC", username, apiKeyID, "")
 	return events, err
 }
 
@@ -100,15 +101,17 @@ func (s *EventService) ListEventsPaginated(
 	sort, order string,
 	username, apiKeyID, searchQuery string,
 ) ([]*event.Event, int64, error) {
+	const defaultLimit = 20
+	const maxLimit = 100
+
 	if page < 1 {
 		page = 1
 	}
-	paginationEnabled := limit > 0
-	if !paginationEnabled {
-		limit = 0
+	if limit <= 0 {
+		limit = defaultLimit
 	}
-	if limit > 1000 {
-		limit = 1000
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 
 	filters := make(map[string]interface{})
@@ -147,14 +150,17 @@ func (s *EventService) ListAllEvents(
 	sort, order string,
 	filters map[string]interface{},
 ) ([]*event.Event, int64, error) {
+	const defaultLimit = 20
+	const maxLimit = 100
+
 	if page < 1 {
 		page = 1
 	}
-	if limit < 1 {
-		limit = 10
+	if limit <= 0 {
+		limit = defaultLimit
 	}
-	if limit > 100 {
-		limit = 100
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 
 	sortMap := map[string]string{

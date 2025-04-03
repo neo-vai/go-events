@@ -19,14 +19,14 @@ func NewEventRepositoryPG(db *pgxpool.Pool) *EventRepositoryPG {
 	return &EventRepositoryPG{db: db}
 }
 
-// toNullableUUID преобразует строку в uuid.UUID или nil, если строка пуста.
+// toNullableUUID converts a string to uuid.UUID or nil if the string is empty or invalid.
 func toNullableUUID(s string) interface{} {
 	if s == "" {
 		return nil
 	}
 	uid, err := uuid.Parse(s)
 	if err != nil {
-		return s // fallback to string if parsing fails (should not happen with valid data)
+		return nil
 	}
 	return uid
 }
@@ -165,6 +165,12 @@ func (r *EventRepositoryPG) GetByAPIKeyID(ctx context.Context, apiKeyID string) 
 
 // ListAll retrieves events with pagination, sorting, and filtering.
 func (r *EventRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, order string, filters map[string]interface{}) ([]*event.Event, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if page < 1 {
+		page = 1
+	}
 	offset := (page - 1) * limit
 
 	baseQuery := `
@@ -184,18 +190,29 @@ func (r *EventRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, 
 		args = append(args, pattern, pattern, pattern)
 		argIdx += 3
 	}
+
 	if accountID, ok := filters["account_id"].(string); ok && accountID != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("account_id = $%d", argIdx))
 		args = append(args, accountID)
 		argIdx++
 	}
+
+	if username, ok := filters["username"].(string); ok && username != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("username = $%d", argIdx))
+		args = append(args, username)
+		argIdx++
+	}
+
 	if apiKeyID, ok := filters["api_key_id"].(string); ok && apiKeyID != "" {
 		if apiKeyID == "null" {
 			whereClauses = append(whereClauses, "api_key_id IS NULL")
 		} else {
-			whereClauses = append(whereClauses, fmt.Sprintf("api_key_id = $%d", argIdx))
-			args = append(args, apiKeyID)
-			argIdx++
+			uid := toNullableUUID(apiKeyID)
+			if uid != nil {
+				whereClauses = append(whereClauses, fmt.Sprintf("api_key_id = $%d", argIdx))
+				args = append(args, uid)
+				argIdx++
+			}
 		}
 	}
 
@@ -219,7 +236,8 @@ func (r *EventRepositoryPG) ListAll(ctx context.Context, page, limit int, sort, 
 	args = append(args, limit, offset)
 
 	var total int64
-	err := r.db.QueryRow(ctx, countQuery, args[:argIdx-1]...).Scan(&total)
+	countArgs := args[:argIdx-1]
+	err := r.db.QueryRow(ctx, countQuery, countArgs...).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
