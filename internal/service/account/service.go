@@ -1,3 +1,4 @@
+// internal/service/account/service.go
 package account
 
 import (
@@ -89,7 +90,10 @@ func (s *AccountService) CreateAccount(ctx context.Context, acc *account.Account
 	}
 	acc.PasswordHash = hash
 	acc.CreatedAt = time.Now()
-	acc.Role = "user" // default role
+	// Set default role only if not already provided (e.g., by admin creation)
+	if acc.Role == "" {
+		acc.Role = "user"
+	}
 	acc.Active = true // new accounts are active
 
 	err = s.repo.Create(ctx, acc)

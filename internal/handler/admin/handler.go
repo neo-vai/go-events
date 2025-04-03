@@ -1,3 +1,4 @@
+// internal/handler/admin/handler.go
 package admin
 
 import (
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/neo-vai/go-events/internal/model/account"
 	"github.com/neo-vai/go-events/internal/model/apikey"
 	"github.com/neo-vai/go-events/internal/model/event"
@@ -165,6 +167,7 @@ func (h *Handler) CreateAccount(c *gin.Context) {
 	}
 
 	acc := &account.Account{
+		ID:    uuid.New(),
 		Email: req.Email,
 		Role:  req.Role,
 	}
