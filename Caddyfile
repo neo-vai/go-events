@@ -1,0 +1,19 @@
+localhost:80 {
+    redir https://{host}{uri}
+}
+
+localhost:443 {
+    tls internal
+
+    # Admin panel static files – SPA fallback
+    handle_path /admin/* {
+        root * /usr/share/nginx/html/admin
+        file_server
+        try_files {path} /index.html
+    }
+
+    # API reverse proxy
+    handle {
+        reverse_proxy go-events:8080
+    }
+}
