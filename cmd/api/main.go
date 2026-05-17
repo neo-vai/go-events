@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/neo-vai/go-events/docs"
 	"github.com/neo-vai/go-events/internal/broker"
@@ -19,6 +21,7 @@ import (
 	adminHandler "github.com/neo-vai/go-events/internal/handler/admin"
 	apikeyHandler "github.com/neo-vai/go-events/internal/handler/apikey"
 	authHandler "github.com/neo-vai/go-events/internal/handler/auth"
+	account_model "github.com/neo-vai/go-events/internal/model/account"
 	account_repository_pg "github.com/neo-vai/go-events/internal/repository/account/postgres"
 	apikey_repository_pg "github.com/neo-vai/go-events/internal/repository/apikey/postgres"
 	"github.com/neo-vai/go-events/internal/repository/cache"
@@ -95,6 +98,27 @@ func main() {
 	apiKeyService := apikey_service.NewAPIKeyService(apiKeyRepo, apiKeyCache, cfg.APIKeyLength)
 
 	eventService := event_service.NewEventService(eventRepo, apiKeyRepo)
+
+	if cfg.SeedAdminEmail != "" && cfg.SeedAdminPassword != "" {
+		ctx := context.Background()
+		_, err := accountService.GetByEmail(ctx, cfg.SeedAdminEmail)
+		if err != nil && errors.Is(err, account_service.ErrAccountNotFound) {
+			adminAcc := &account_model.Account{
+				ID:    uuid.New(),
+				Email: cfg.SeedAdminEmail,
+				Role:  "admin",
+			}
+			if createErr := accountService.CreateAccount(ctx, adminAcc, cfg.SeedAdminPassword); createErr != nil {
+				logger.Warn("failed to seed admin account", "email", cfg.SeedAdminEmail, "error", createErr)
+			} else {
+				logger.Info("seeded admin account", "email", cfg.SeedAdminEmail)
+			}
+		} else if err == nil {
+			logger.Info("admin account already exists", "email", cfg.SeedAdminEmail)
+		} else {
+			logger.Warn("error checking admin account existence", "email", cfg.SeedAdminEmail, "error", err)
+		}
+	}
 
 	accountH := accountHandler.NewHandler(accountService)
 	apiKeyH := apikeyHandler.NewHandler(apiKeyService)

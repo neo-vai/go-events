@@ -49,10 +49,12 @@ type Config struct {
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
 
-	// Broker configuration
 	BrokerURL              string
 	BrokerSubject          string
 	BrokerJetStreamEnabled bool
+
+	SeedAdminEmail    string
+	SeedAdminPassword string
 }
 
 type RequestsPerDuration struct {
@@ -130,10 +132,12 @@ func Load() (*Config, error) {
 	cfg.DBMaxConnLifetime = time.Duration(getEnvInt("DB_MAX_CONN_LIFETIME_SEC", 3600)) * time.Second
 	cfg.DBMaxConnIdleTime = time.Duration(getEnvInt("DB_MAX_CONN_IDLE_TIME_SEC", 1800)) * time.Second
 
-	// Broker configuration
 	cfg.BrokerURL = getEnv("BROKER_URL", "nats://localhost:4222")
 	cfg.BrokerSubject = getEnv("BROKER_SUBJECT", "events")
 	cfg.BrokerJetStreamEnabled = getEnvBool("BROKER_JETSTREAM_ENABLED", false)
+
+	cfg.SeedAdminEmail = os.Getenv("SEED_ADMIN_EMAIL")
+	cfg.SeedAdminPassword = os.Getenv("SEED_ADMIN_PASSWORD")
 
 	if err := cfg.validate(); err != nil {
 		return nil, err

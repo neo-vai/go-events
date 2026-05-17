@@ -19,7 +19,6 @@ TEST_DB_URL := postgres://$(TEST_DB_USER):$(TEST_DB_PASSWORD)@localhost:$(TEST_D
 help:
 	@echo "Available commands:"
 	@echo "  make admin-build   - Build admin panel static files"
-	@echo "  make rebuild-admin - Force rebuild admin panel"
 	@echo "  make build         - Build Docker images"
 	@echo "  make up            - Start all services"
 	@echo "  make down          - Stop all services"
@@ -33,10 +32,7 @@ help:
 .PHONY: admin-build
 admin-build:
 	@echo "Building admin panel..."
-	cd admin && npm ci && npm run build
-
-.PHONY: rebuild-admin
-rebuild-admin: admin-build
+	cd admin && npm ci --verbose && npm run build
 
 .PHONY: build
 build:
@@ -79,6 +75,14 @@ test:
 	@echo "Stopping test database..."
 	@docker compose -f docker-compose.test.yml down -v
 
+.PHONY: migrate-install
+migrate-install:
+	@echo "Installing golang-migrate CLI..."
+	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+	@echo "Migrate CLI installed to $$(go env GOPATH)/bin/migrate"
+	@echo "Make sure $$(go env GOPATH)/bin is in your PATH"
+	@echo "Run 'export PATH=\$$HOME/go/bin:\$$PATH' if needed"
+
 .PHONY: migrate-up
 migrate-up:
 	@echo "Applying migrations..."
@@ -89,7 +93,18 @@ migrate-down:
 	@echo "Rolling back migrations..."
 	migrate -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" down
 
+.PHONE: swagger-install
+swagger:
+	@echo "Installing swagger tools..."
+	go install github.com/swaggo/swag/cmd/swag@latest
+
 .PHONY: swagger
 swagger:
 	@echo "Generating Swagger documentation..."
-	swag init -g ./cmd/api/main.go -o ./docs
+	swag init \
+		-d ./cmd/api \
+		-g main.go \
+		-o ./docs \
+		--parseDependency \
+		--parseInternal
+	@echo "Swagger documentation generated in ./docs"
