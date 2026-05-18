@@ -17,6 +17,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Handlers struct {
@@ -61,7 +63,11 @@ func NewRouter(
 	r.Use(middleware.RequestID())
 	r.Use(middleware.StructuredLogger())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
+	r.Use(middleware.PrometheusMetrics()) // custom Prometheus metrics
 	r.Use(middleware.ValidationErrorHandler())
+
+	// Metrics endpoint - must be exposed for Prometheus scraping
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Routes that should NOT be rate limited: health and swagger
 	r.GET("/health", func(c *gin.Context) {

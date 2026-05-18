@@ -130,7 +130,7 @@ Then access the Swagger UI at `https://localhost/swagger/index.html`.
 | **API**          | `https://localhost`                          | —                    |
 | **Swagger UI**   | `https://localhost/swagger/index.html`       | —                    |
 | **Admin UI**     | `https://localhost/admin`                    | admin account        |
-| **Grafana**      | `http://localhost:3001`                      | `admin` / `admin`    |
+| **Grafana**      | `http://localhost:3001/dashboards`           | `admin` / `admin`    |
 | **Prometheus**   | `http://localhost:9090`                      | —                    |
 
 ### 6. Admin account

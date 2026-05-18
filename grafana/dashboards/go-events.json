@@ -1,0 +1,81 @@
+{
+  "title": "Go Events Production",
+  "tags": ["go", "gin", "events"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Requests Per Second",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(gin_requests_total[1m])) by (method, path)",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ],
+      "yaxes": [{"format": "rps"}, {"format": "short"}]
+    },
+    {
+      "title": "HTTP Status Codes (2xx, 4xx, 5xx)",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(gin_requests_total{status=~\"2..\"}[1m]))", "legendFormat": "2xx"},
+        {"expr": "sum(rate(gin_requests_total{status=~\"4..\"}[1m]))", "legendFormat": "4xx"},
+        {"expr": "sum(rate(gin_requests_total{status=~\"5..\"}[1m]))", "legendFormat": "5xx"}
+      ],
+      "yaxes": [{"format": "rps"}, {"format": "short"}]
+    },
+    {
+      "title": "Request Latency (p50, p95, p99)",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(gin_request_duration_seconds_bucket[1m])) by (le, method, path))",
+          "legendFormat": "p50 {{method}} {{path}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(gin_request_duration_seconds_bucket[1m])) by (le, method, path))",
+          "legendFormat": "p95 {{method}} {{path}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(gin_request_duration_seconds_bucket[1m])) by (le, method, path))",
+          "legendFormat": "p99 {{method}} {{path}}"
+        }
+      ],
+      "yaxes": [{"format": "s"}, {"format": "short"}]
+    },
+    {
+      "title": "Goroutines",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "go_goroutines", "legendFormat": "goroutines"}
+      ],
+      "yaxes": [{"format": "short"}, {"format": "short"}]
+    },
+    {
+      "title": "Heap In Use",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 16},
+      "targets": [
+        {"expr": "go_memstats_heap_inuse_bytes", "legendFormat": "heap in use"}
+      ],
+      "yaxes": [{"format": "bytes"}, {"format": "short"}]
+    },
+    {
+      "title": "GC Duration",
+      "type": "graph",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
+      "targets": [
+        {"expr": "rate(go_gc_duration_seconds_sum[1m])", "legendFormat": "GC duration sum/s"}
+      ],
+      "yaxes": [{"format": "s"}, {"format": "short"}]
+    }
+  ],
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "id": null,
+  "version": 1
+}
