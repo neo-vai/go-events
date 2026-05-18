@@ -27,7 +27,8 @@ help:
 	@echo "  make test          - Run all tests (with test database)"
 	@echo "  make migrate-up    - Apply database migrations"
 	@echo "  make migrate-down  - Rollback migrations"
-	@echo "  make swagger       - Generate Swagger documentation"
+	@echo "  make swagger-install - Install swag CLI"
+	@echo "  make swagger         - Generate Swagger documentation"
 
 .PHONY: admin-build
 admin-build:
@@ -93,8 +94,8 @@ migrate-down:
 	@echo "Rolling back migrations..."
 	migrate -path ./migrations -database "$(DATABASE_URL_LOCALHOST)" down
 
-.PHONE: swagger-install
-swagger:
+.PHONY: swagger-install
+swagger-install:
 	@echo "Installing swagger tools..."
 	go install github.com/swaggo/swag/cmd/swag@latest
 
