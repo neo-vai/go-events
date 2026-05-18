@@ -102,9 +102,10 @@ swagger:
 swagger:
 	@echo "Generating Swagger documentation..."
 	swag init \
-		-d ./cmd/api \
+		-d ./cmd/api,./internal/handler \
 		-g main.go \
 		-o ./docs \
 		--parseDependency \
-		--parseInternal
+		--parseInternal \
+		--parseDepth 3
 	@echo "Swagger documentation generated in ./docs"
