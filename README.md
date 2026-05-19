@@ -98,18 +98,7 @@ RATE_LIMIT_GLOBAL="100/1m"    # 100 requests per minute
 RATE_LIMIT_LOGIN="5/1m"       # 5 login attempts per minute
 ```
 
-### 3. Run with Docker
-
-```bash
-make up
-```
-
-This command will:
-- Build the admin panel (if not already built)
-- Create Docker images for the API and worker
-- Start the full stack (API, worker, PostgreSQL, Redis, NATS, Caddy, Prometheus, Grafana)
-
-### 4. Generate Swagger documentation (optional)
+### 3. Generate Swagger documentation
 
 API endpoints are annotated with Swagger comments. To generate and serve interactive API documentation:
 
@@ -121,7 +110,16 @@ make swagger-install
 make swagger
 ```
 
-Then access the Swagger UI at `https://localhost/swagger/index.html`.
+### 4. Run with Docker
+
+```bash
+make up
+```
+
+This command will:
+- Build the admin panel (if not already built)
+- Create Docker images for the API and worker
+- Start the full stack (API, worker, PostgreSQL, Redis, NATS, Caddy, Prometheus, Grafana)
 
 ### 5. Access the services
 
