@@ -110,7 +110,13 @@ make swagger-install
 make swagger
 ```
 
-### 4. Run with Docker
+### 4. Build docker containers
+
+```bash
+make build
+```
+
+### 5. Run with Docker
 
 ```bash
 make up
